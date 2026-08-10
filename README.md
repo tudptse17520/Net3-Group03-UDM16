@@ -52,15 +52,15 @@ Mô tả cách thay đổi IP, port và các tham số mạng. Không ghi passwo
 
 ## Chức năng
 
-- [x] Client kết nối với Server và xem danh sách người chơi đang online.
-- [x] Gửi, chấp nhận hoặc từ chối lời mời thách đấu.
-- [x] Quản lý nhiều trận đấu đồng thời và trạng thái phòng riêng biệt.
-- [x] Kiểm tra tính hợp lệ của nước đi và xác định kết quả thắng/thua/hòa.
-- [x] Giới hạn thời gian lượt đi; xử lý theo luật khi hết giờ.
-- [x] Reconnect (kết nối lại) để tiếp tục trận đấu trong thời gian cho phép.
-- [x] Lưu lịch sử và kết quả các trận đấu.
-- [x] Tham gia phòng với vai trò khán giả (nhận đầy đủ trạng thái lúc vào và cập nhật realtime).
-- [x] Phân biệt vai trò: Khán giả chỉ xem, không tác động đến trận đấu, có thể rời phòng tự do.
+- [ ] Client kết nối với Server và xem danh sách người chơi đang online.
+- [ ] Gửi, chấp nhận hoặc từ chối lời mời thách đấu.
+- [ ] Quản lý nhiều trận đấu đồng thời và trạng thái phòng riêng biệt.
+- [ ] Kiểm tra tính hợp lệ của nước đi và xác định kết quả thắng/thua/hòa.
+- [ ] Giới hạn thời gian lượt đi; xử lý theo luật khi hết giờ.
+- [ ] Reconnect (kết nối lại) để tiếp tục trận đấu trong thời gian cho phép.
+- [ ] Lưu lịch sử và kết quả các trận đấu.
+- [ ] Tham gia phòng với vai trò khán giả (nhận đầy đủ trạng thái lúc vào và cập nhật realtime).
+- [ ] Phân biệt vai trò: Khán giả chỉ xem, không tác động đến trận đấu, có thể rời phòng tự do.
 
 ## Kiểm thử
 
