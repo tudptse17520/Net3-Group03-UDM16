@@ -15,7 +15,7 @@ namespace CaroServer.Logging
             }
             catch
             {
-                // Tránh crash ứng dụng nếu file log đang bị tiến trình khác mở
+                
             }
         }
     }
