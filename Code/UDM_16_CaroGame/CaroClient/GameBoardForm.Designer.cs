@@ -1,6 +1,6 @@
-﻿namespace CaroClient
+namespace CaroClient
 {
-    partial class Form1
+    partial class GameBoardForm
     {
         /// <summary>
         ///  Required designer variable.
@@ -30,13 +30,18 @@
         {
             SuspendLayout();
             // 
-            // Form1
+            // GameBoardForm
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(800, 450);
-            Name = "Form1";
-            Text = "Form1";
+            // Kích thước Form phù hợp bàn cờ 15x15, mỗi ô 40px
+            ClientSize = new Size(600, 620);
+            DoubleBuffered = true;
+            Name = "GameBoardForm";
+            Text = "Caro Game";
+            // Đăng ký event handlers
+            Load += GameBoardForm_Load;
+            FormClosing += GameBoardForm_FormClosing;
             ResumeLayout(false);
         }
 
