@@ -1,35 +1,40 @@
 using System.Text;
+
 namespace CaroShared.Protocol
 {
-    public class MessageFrameDecoder
+    
+    public sealed class MessageFrameDecoder
     {
         private readonly StringBuilder _buffer = new();
 
-        public List<string> Decode(string incomingData)
+       
+        public IReadOnlyList<string> Decode(string incomingData)
         {
             if (string.IsNullOrEmpty(incomingData))
-                return new List<string>();
+            {
+                return Array.Empty<string>();
+            }
 
             _buffer.Append(incomingData);
 
-            List<string> messages = new();
+            var messages = new List<string>();
 
             while (true)
             {
-                int delimiterIndex = _buffer
-                    .ToString()
-                    .IndexOf('\n');
+                var delimiterIndex = _buffer.ToString().IndexOf('\n');
 
                 if (delimiterIndex < 0)
+                {
                     break;
+                }
 
-                string message = _buffer
+                var message = _buffer
                     .ToString(0, delimiterIndex)
                     .Trim();
 
                 _buffer.Remove(0, delimiterIndex + 1);
 
-                if (!string.IsNullOrWhiteSpace(message))
+                if (message.Length > 0)
                 {
                     messages.Add(message);
                 }
@@ -38,6 +43,7 @@ namespace CaroShared.Protocol
             return messages;
         }
 
+        
         public string GetRemainingBuffer()
         {
             return _buffer.ToString();
