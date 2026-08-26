@@ -1,57 +1,69 @@
-using System.Text.Json; 
+using System.Text.Json;
 
 namespace CaroShared.Protocol
 {
-    public class MessageSerializer
+    
+    public sealed class MessageSerializer
     {
-        private const char MessageDelimiter = '\n';
-
         private readonly JsonSerializerOptions _options;
 
-        public MessageSerializer()
+        public MessageSerializer(JsonSerializerOptions? options = null)
         {
-            _options = new JsonSerializerOptions
+            _options = options ?? new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             };
         }
 
-        // Object -> JSON + \n
-        public string Serialize<T>(T message)
+       
+        public string Serialize(NetworkMessage message)
         {
-            if (message == null)
-                throw new ArgumentNullException(nameof(message));
+            ArgumentNullException.ThrowIfNull(message);
 
-            string json = JsonSerializer.Serialize(message, _options);
-
-            return json + MessageDelimiter;
+            return JsonSerializer.Serialize(message, _options) + "\n";
         }
 
-        // JSON -> Object
-        public T Deserialize<T>(string json)
+       
+        public NetworkMessage Deserialize(string frame)
         {
-            if (string.IsNullOrWhiteSpace(json))
+            if (string.IsNullOrWhiteSpace(frame))
+            {
                 throw new ArgumentException(
-                    "JSON message cannot be empty.",
-                    nameof(json));
+                    "Message frame cannot be empty.",
+                    nameof(frame));
+            }
 
-            return JsonSerializer.Deserialize<T>(
-                json.Trim(),
-                _options
-            ) ?? throw new InvalidOperationException(
-                "Cannot deserialize message.");
+            var message = JsonSerializer.Deserialize<NetworkMessage>(
+                frame.Trim(),
+                _options);
+
+            return message
+                ?? throw new JsonException("Cannot deserialize NetworkMessage.");
         }
 
-        // Tách các message theo \n
-        public List<string> SplitMessages(string buffer)
+        
+        public string SerializePayload<T>(T payload)
         {
-            if (string.IsNullOrEmpty(buffer))
-                return new List<string>();
+            ArgumentNullException.ThrowIfNull(payload);
 
-            return buffer
-                .Split(MessageDelimiter)
-                .Where(message => !string.IsNullOrWhiteSpace(message))
-                .ToList();
+            return JsonSerializer.Serialize(payload, _options);
+        }
+
+       
+        public T DeserializePayload<T>(NetworkMessage message)
+        {
+            ArgumentNullException.ThrowIfNull(message);
+
+            if (message.Payload is not JsonElement element)
+            {
+                throw new JsonException(
+                    "NetworkMessage.Payload does not contain a JSON object.");
+            }
+
+            var payload = element.Deserialize<T>(_options);
+
+            return payload
+                ?? throw new JsonException("Cannot deserialize message payload.");
         }
     }
 }
