@@ -15,8 +15,8 @@ namespace CaroServer.Managers
         // Thêm người chơi mới vào sảnh
         public bool AddPlayer(string playerId, string playerName)
         {
-            // TryAdd tự động xử lý an toàn luồng (thread-safe)
-            return _onlinePlayers.TryAdd(playerId, playerName);
+            _onlinePlayers[playerId] = playerName;
+            return true;
         }
 
         // Xóa người chơi khỏi sảnh khi họ thoát game hoặc vào phòng chơi

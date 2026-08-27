@@ -30,5 +30,10 @@ namespace CaroServer.Managers
             _sessions.TryGetValue(playerId, out var session);
             return session;
         }
+
+        public System.Collections.Generic.IEnumerable<PlayerSession> GetAllSessions()
+        {
+            return _sessions.Values;
+        }
     }
 }
