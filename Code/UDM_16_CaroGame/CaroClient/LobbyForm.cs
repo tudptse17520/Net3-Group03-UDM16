@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel; // Cần thiết cho DesignerSerializationVisibility
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -31,6 +31,47 @@ namespace CaroClient
             BtnCreateRoom.Paint += Button_Paint;
             BtnRefresh.Paint += Button_Paint;
             BtnLogout.Paint += Button_Paint;
+
+            // Đăng ký sự kiện nhận danh sách người chơi từ Server
+            CaroClient.Network.NetworkClient.Instance.OnPlayerListReceived += OnPlayerListReceivedHandler;
+            this.FormClosing += LobbyForm_FormClosing;
+
+            // Yêu cầu lấy danh sách người chơi mới nhất
+            _ = CaroClient.Network.NetworkClient.Instance.RequestPlayerListAsync();
+        }
+
+        private void OnPlayerListReceivedHandler(System.Collections.Generic.List<string> playerNames)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => OnPlayerListReceivedHandler(playerNames)));
+                return;
+            }
+
+            LstPlayers.Items.Clear();
+            string myNick = !string.IsNullOrWhiteSpace(PlayerName) 
+                ? PlayerName.Trim() 
+                : CaroClient.Network.NetworkClient.Instance.CurrentNickname.Trim();
+
+            foreach (var name in playerNames)
+            {
+                if (string.Equals(name.Trim(), myNick, StringComparison.OrdinalIgnoreCase))
+                {
+                    LstPlayers.Items.Add($"🟢 {name} (Bạn)");
+                }
+                else
+                {
+                    LstPlayers.Items.Add($"👤 {name}");
+                }
+            }
+
+            LblPlayers.Text = $"Người chơi online ({playerNames.Count}):";
+        }
+
+        private void LobbyForm_FormClosing(object? sender, FormClosingEventArgs e)
+        {
+            CaroClient.Network.NetworkClient.Instance.OnPlayerListReceived -= OnPlayerListReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.Disconnect();
         }
 
         // Khắc phục cảnh báo CS8622: Thêm dấu ? cho object? sender
@@ -108,20 +149,26 @@ namespace CaroClient
             MessageBox.Show("Đang tạo phòng mới...", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-        private void BtnRefresh_Click(object sender, EventArgs e)
+        private async void BtnRefresh_Click(object sender, EventArgs e)
         {
+            // Gửi yêu cầu xin lại danh sách người chơi online
+            await CaroClient.Network.NetworkClient.Instance.RequestPlayerListAsync();
+
+            // Cập nhật danh sách phòng mẫu
             LstRooms.Items.Clear();
             LstRooms.Items.Add("Phòng 101 (1/2)");
             LstRooms.Items.Add("Phòng 102 (Đang chơi)");
             LstRooms.Items.Add("Phòng 103 (1/2)");
-            MessageBox.Show("Đã làm mới danh sách phòng!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-        private void BtnLogout_Click(object sender, EventArgs e)
+        private async void BtnLogout_Click(object sender, EventArgs e)
         {
             DialogResult dialogResult = MessageBox.Show("Bạn có chắc chắn muốn đăng xuất?", "Xác nhận", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (dialogResult == DialogResult.Yes)
             {
+                await CaroClient.Network.NetworkClient.Instance.SendLogoutAsync();
+                await System.Threading.Tasks.Task.Delay(100);
+                CaroClient.Network.NetworkClient.Instance.Disconnect();
                 this.Close();
             }
         }

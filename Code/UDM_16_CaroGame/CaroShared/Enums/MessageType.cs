@@ -11,7 +11,9 @@ namespace CaroShared.Enums
         Pong,
 
         // 2. Sảnh chờ (Lobby)
+        GetPlayerListRequest,
         PlayerListResponse,
+        LogoutRequest,
 
         // 3. Thách đấu
         ChallengeRequest,
