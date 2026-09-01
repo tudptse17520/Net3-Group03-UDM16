@@ -190,7 +190,18 @@ namespace CaroServer.Core
             var session = _roomManager.GetSession(roomId);
             if (session != null)
             {
-                var resultMsg = new NetworkMessage(MessageType.MoveMadeEvent, result);
+                var responseDto = new MoveMadeEventDto
+                {
+                    RoomId = roomId,
+                    PlayerId = senderSession.PlayerId,
+                    X = moveRequest.X,
+                    Y = moveRequest.Y,
+                    WinnerSymbol = result.WinnerSymbol,
+                    IsValid = result.IsValid,
+                    ErrorMessage = result.ErrorMessage
+                };
+
+                var resultMsg = new NetworkMessage(MessageType.MoveMadeEvent, responseDto);
 
                 var playerX = _sessionManager.GetSession(session.PlayerXId);
                 var playerO = _sessionManager.GetSession(session.PlayerOId);
