@@ -1,17 +1,16 @@
 namespace CaroShared.Contracts
 {
-    // Dữ liệu Server gửi về Client khi có người vừa đánh cờ
-    public class MoveMadeEventDto
+    public record MoveMadeEventDto
     {
-        public string RoomId { get; set; } = string.Empty;
-        public string PlayerId { get; set; } = string.Empty;
-        public int X { get; set; }
-        public int Y { get; set; }
+        public string RoomId { get; init; } = string.Empty;
+        public string PlayerId { get; init; } = string.Empty;
+        public int X { get; init; }
+        public int Y { get; init; }
         
-        // 0: Đang chơi, 1: X thắng, 2: O thắng
-        public int WinnerSymbol { get; set; }
+        // 0: Trống (không ai thắng), 1: X thắng, 2: O thắng
+        public int WinnerSymbol { get; init; }
         
-        public bool IsValid { get; set; }
-        public string? ErrorMessage { get; set; }
+        public bool IsValid { get; init; }
+        public string ErrorMessage { get; init; } = string.Empty;
     }
 }

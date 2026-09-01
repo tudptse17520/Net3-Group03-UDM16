@@ -5,8 +5,8 @@
 | STT | MSSV | Họ và tên | Vai trò |
 |---:|---|---|---|
 | 1 | 074203003699 | Đoàn Phạm Thanh Tú | Leader / Core Server & Network |
-| 2 | 087206011726 | Trần Chí Trung | Room & Game Logic (Server) |
-| 3 | 001206004489 | Trần Đức Trung | Client Lobby & Challenge UI |
+| 2 | 087206011726 | Trần Đức Trung | Room & Game Logic (Server) |
+| 3 | 001206004489 | Trần Chí Trung | Client Lobby & Challenge UI |
 | 4 | 051206007634 | Võ Văn Quang Trung | Client GameBoard & Spectator UI |
 | 5 | 080306012223 | Huỳnh Phương Ý Vy | Protocol, Reconnect & Spectator Server |
 | 6 | 052205013900 | Nguyễn Chí Toàn | Database, Match History & QA |
