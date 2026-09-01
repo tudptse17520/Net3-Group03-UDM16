@@ -1,5 +1,9 @@
 using System;
 using System.Net.Sockets;
+using System.Text.Json;
+using System.Threading.Tasks;
+using CaroShared.Protocol;
+using CaroShared.Constants;
 
 namespace CaroServer.Models
 {
@@ -24,6 +28,21 @@ namespace CaroServer.Models
             string shortId = Guid.NewGuid().ToString("N").Substring(0, 6);
             PlayerId = $"Player_{shortId}";
             SessionToken = Guid.NewGuid().ToString();
+        }
+
+        // Gửi tin nhắn qua luồng Stream
+        public async Task SendMessageAsync(NetworkMessage message)
+        {
+            try
+            {
+                string json = JsonSerializer.Serialize(message);
+                byte[] data = System.Text.Encoding.UTF8.GetBytes(json + NetworkConstants.MessageDelimiter);
+                await Stream.WriteAsync(data, 0, data.Length);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PlayerSession] Error sending message to {PlayerId}: {ex.Message}");
+            }
         }
 
         // Đảm bảo đóng socket và giải phóng tài nguyên
