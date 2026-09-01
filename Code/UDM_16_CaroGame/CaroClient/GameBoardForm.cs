@@ -8,7 +8,17 @@ namespace CaroClient
 
         // ── Trạng thái bàn cờ ─────────────────────────────────────────────
         // 0 = trống | 1 = X (Player 1) | 2 = O (Player 2)
-        private int[,] _board = new int[BoardSize, BoardSize];
+        private int[][] _board = CreateJaggedBoard();
+
+        private static int[][] CreateJaggedBoard()
+        {
+            var b = new int[BoardSize][];
+            for (int i = 0; i < BoardSize; i++)
+            {
+                b[i] = new int[BoardSize];
+            }
+            return b;
+        }
 
         // ── Tham chiếu các ô nút ──────────────────────────────────────────
         private Button[,] _cells = new Button[BoardSize, BoardSize];
@@ -85,7 +95,7 @@ namespace CaroClient
             var (row, col) = ((int, int))btn.Tag!;
 
             // Chỉ cho phép đánh vào ô trống
-            if (_board[row, col] != 0) return;
+            if (_board[row][col] != 0) return;
 
             // TODO [NetworkDev]: Gửi tọa độ (row, col) lên server qua NetworkClient
             //   Gợi ý: NetworkClient.SendMove(row, col);
@@ -111,20 +121,20 @@ namespace CaroClient
 
         // ── Cập nhật UI từ dữ liệu server gửi về ─────────────────────────
         // board: mảng 15×15 (0=trống, 1=X, 2=O)
-        public void UpdateBoard(int[,] board)
+        public void UpdateBoard(int[][] board)
         {
             for (int row = 0; row < BoardSize; row++)
             {
                 for (int col = 0; col < BoardSize; col++)
                 {
-                    _board[row, col] = board[row, col];
-                    _cells[row, col].Text = board[row, col] switch
+                    _board[row][col] = board[row][col];
+                    _cells[row, col].Text = board[row][col] switch
                     {
                         1 => "X",
                         2 => "O",
                         _ => ""
                     };
-                    _cells[row, col].ForeColor = board[row, col] switch
+                    _cells[row, col].ForeColor = board[row][col] switch
                     {
                         1 => Color.DarkBlue,
                         2 => Color.DarkRed,
@@ -137,7 +147,7 @@ namespace CaroClient
         // ── Reset bàn cờ về trạng thái ban đầu ───────────────────────────
         public void ResetBoard()
         {
-            _board = new int[BoardSize, BoardSize];
+            _board = CreateJaggedBoard();
             for (int row = 0; row < BoardSize; row++)
                 for (int col = 0; col < BoardSize; col++)
                 {
