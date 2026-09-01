@@ -11,8 +11,5 @@ namespace CaroShared.Constants
 
         // Chờ tối đa 60s khi rớt mạng trước khi xử thua
         public const int ReconnectWindowSeconds = 60;
-
-        // Khoảng thời gian Ping/Pong ngầm (5s)
-        public const int HeartbeatIntervalSeconds = 5;
     }
 }
