@@ -12,7 +12,7 @@ using CaroShared.Protocol;
 
 namespace CaroClient.Network
 {
-    // Quản lý kết nối TCP bất đồng bộ ở phía Client (Singleton)
+    // Quản lý kết nối TCP phía Client (Singleton)
     public class NetworkClient
     {
         private static NetworkClient? _instance;
@@ -27,14 +27,20 @@ namespace CaroClient.Network
         public bool IsConnected => _isConnected && _client != null && _client.Connected;
         public string CurrentNickname { get; private set; } = string.Empty;
 
-        // Events phát tín hiệu đến Giao diện (UI)
+        // Events để UI lắng nghe
         public event Action<bool, string>? OnConnectResult;
         public event Action<List<string>>? OnPlayerListReceived;
         public event Action? OnDisconnected;
 
         private NetworkClient() { }
 
-        // Kết nối tới Server IP và Port
+        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+        };
+
+        // Kết nối tới Server
         public async Task<bool> ConnectAsync(string ip, int port)
         {
             try
@@ -49,7 +55,7 @@ namespace CaroClient.Network
                 _writer = new StreamWriter(_stream, Encoding.UTF8) { AutoFlush = true };
                 _isConnected = true;
 
-                // Khởi động luồng đọc ngầm dữ liệu từ Server
+                // Bắt đầu đọc dữ liệu từ Server
                 _ = ReadLoopAsync();
 
                 return true;
@@ -57,7 +63,7 @@ namespace CaroClient.Network
             catch (Exception ex)
             {
                 _isConnected = false;
-                OnConnectResult?.Invoke(false, $"Không thể kết nối đến Server ({ip}:{port}): {ex.Message}");
+                OnConnectResult?.Invoke(false, $"Cannot connect to Server ({ip}:{port}): {ex.Message}");
                 return false;
             }
         }
@@ -70,30 +76,7 @@ namespace CaroClient.Network
             await SendMessageAsync(message);
         }
 
-        // Xin danh sách người chơi online
-        public async Task RequestPlayerListAsync()
-        {
-            var message = new NetworkMessage(MessageType.GetPlayerListRequest, null);
-            await SendMessageAsync(message);
-        }
-
-        // Gửi thông điệp đăng xuất lên Server
-        public async Task SendLogoutAsync()
-        {
-            if (IsConnected)
-            {
-                var message = new NetworkMessage(MessageType.LogoutRequest, CurrentNickname);
-                await SendMessageAsync(message);
-            }
-        }
-
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true,
-            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
-        };
-
-        // Gửi gói tin NetworkMessage chung lên Server dạng JSON + '\n'
+        // Gửi NetworkMessage lên Server
         public async Task SendMessageAsync(NetworkMessage message)
         {
             if (!IsConnected || _writer == null) return;
@@ -106,12 +89,12 @@ namespace CaroClient.Network
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[NetworkClient] Lỗi gửi dữ liệu: {ex.Message}");
+                Console.WriteLine($"[NetworkClient] Error sending data: {ex.Message}");
                 Disconnect();
             }
         }
 
-        // Luồng đọc bất đồng bộ ngầm
+        // Vòng lặp đọc dữ liệu từ Server
         private async Task ReadLoopAsync()
         {
             try
@@ -119,7 +102,7 @@ namespace CaroClient.Network
                 while (_isConnected && _reader != null)
                 {
                     string? jsonLine = await _reader.ReadLineAsync();
-                    if (jsonLine == null) break; // Server ngắt kết nối
+                    if (jsonLine == null) break;
 
                     if (string.IsNullOrWhiteSpace(jsonLine)) continue;
 
@@ -132,7 +115,7 @@ namespace CaroClient.Network
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[NetworkClient] Lỗi đọc luồng: {ex.Message}");
+                Console.WriteLine($"[NetworkClient] Error reading stream: {ex.Message}");
             }
             finally
             {
@@ -140,13 +123,13 @@ namespace CaroClient.Network
             }
         }
 
-        // Xử lý thông điệp nhận từ Server
+        // Xử lý message nhận từ Server
         private void HandleIncomingMessage(NetworkMessage message)
         {
             switch (message.Type)
             {
                 case MessageType.LoginResponse:
-                    OnConnectResult?.Invoke(true, "Đăng nhập thành công!");
+                    OnConnectResult?.Invoke(true, "Login successful!");
                     ParseAndNotifyPlayerList(message);
                     break;
 
@@ -154,25 +137,26 @@ namespace CaroClient.Network
                     ParseAndNotifyPlayerList(message);
                     break;
 
-                case MessageType.Pong:
-                    break;
-
                 default:
-                    Console.WriteLine($"[NetworkClient] Chưa xử lý loại tin nhắn: {message.Type}");
+                    Console.WriteLine($"[NetworkClient] Unhandled message type: {message.Type}");
                     break;
             }
         }
 
+        // Parse Payload thành danh sách tên người chơi
         private void ParseAndNotifyPlayerList(NetworkMessage message)
         {
-            var response = message.GetPayload<PlayerListResponse>();
-            if (response != null && response.PlayerNames != null)
+            if (message.Payload is JsonElement element)
             {
-                OnPlayerListReceived?.Invoke(response.PlayerNames);
+                var response = element.Deserialize<PlayerListResponse>(JsonOptions);
+                if (response != null && response.PlayerNames != null)
+                {
+                    OnPlayerListReceived?.Invoke(response.PlayerNames);
+                }
             }
         }
 
-        // Ngắt kết nối và giải phóng tài nguyên
+        // Ngắt kết nối
         public void Disconnect()
         {
             if (!_isConnected && _client == null) return;

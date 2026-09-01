@@ -36,8 +36,7 @@ namespace CaroClient
             CaroClient.Network.NetworkClient.Instance.OnPlayerListReceived += OnPlayerListReceivedHandler;
             this.FormClosing += LobbyForm_FormClosing;
 
-            // Yêu cầu lấy danh sách người chơi mới nhất
-            _ = CaroClient.Network.NetworkClient.Instance.RequestPlayerListAsync();
+            // TODO: Sẽ request danh sách khi Server hỗ trợ PlayerListRequest
         }
 
         private void OnPlayerListReceivedHandler(System.Collections.Generic.List<string> playerNames)
@@ -151,8 +150,7 @@ namespace CaroClient
 
         private async void BtnRefresh_Click(object sender, EventArgs e)
         {
-            // Gửi yêu cầu xin lại danh sách người chơi online
-            await CaroClient.Network.NetworkClient.Instance.RequestPlayerListAsync();
+            // TODO: Sẽ request danh sách khi Server hỗ trợ PlayerListRequest
 
             // Cập nhật danh sách phòng mẫu
             LstRooms.Items.Clear();
@@ -161,13 +159,11 @@ namespace CaroClient
             LstRooms.Items.Add("Phòng 103 (1/2)");
         }
 
-        private async void BtnLogout_Click(object sender, EventArgs e)
+        private void BtnLogout_Click(object sender, EventArgs e)
         {
             DialogResult dialogResult = MessageBox.Show("Bạn có chắc chắn muốn đăng xuất?", "Xác nhận", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (dialogResult == DialogResult.Yes)
             {
-                await CaroClient.Network.NetworkClient.Instance.SendLogoutAsync();
-                await System.Threading.Tasks.Task.Delay(100);
                 CaroClient.Network.NetworkClient.Instance.Disconnect();
                 this.Close();
             }

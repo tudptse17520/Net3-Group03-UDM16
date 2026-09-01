@@ -12,10 +12,6 @@ namespace CaroShared.Contracts
         // Tên người cầm O
         public string? PlayerO { get; init; }
 
-        // Tên người chơi 1 & 2 (Alias tương thích cho các Manager)
-        public string? Player1 { get => PlayerX; init => PlayerX = value; }
-        public string? Player2 { get => PlayerO; init => PlayerO = value; }
-
         // Số người xem
         public int SpectatorCount { get; init; }
     }
