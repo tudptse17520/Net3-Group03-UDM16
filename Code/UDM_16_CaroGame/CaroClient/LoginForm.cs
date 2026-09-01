@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -30,7 +30,7 @@ namespace CaroClient
             */
         }
 
-        private void BtnConnect_Paint(object sender, PaintEventArgs e)
+        private void BtnConnect_Paint(object? sender, PaintEventArgs e)
         {
             int borderRadius = 10;
             Rectangle rect = new Rectangle(0, 0, BtnConnect.Width - 1, BtnConnect.Height - 1);
@@ -79,7 +79,7 @@ namespace CaroClient
             return path;
         }
 
-        private void BtnConnect_Click(object sender, EventArgs e)
+        private async void BtnConnect_Click(object sender, EventArgs e)
         {
             if (string.IsNullOrWhiteSpace(TxtNickname.Text))
             {
@@ -105,6 +105,21 @@ namespace CaroClient
             PlayerName = TxtNickname.Text.Trim();
             ServerIp = TxtServerIp.Text.Trim();
             ServerPort = port;
+
+            BtnConnect.Enabled = false;
+            BtnConnect.Text = "ĐANG KẾT NỐI...";
+
+            bool success = await CaroClient.Network.NetworkClient.Instance.ConnectAsync(ServerIp, ServerPort);
+            if (!success)
+            {
+                MessageBox.Show($"Không thể kết nối đến Server {ServerIp}:{ServerPort}. Vui lòng kiểm tra lại Server!", "Lỗi kết nối", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                BtnConnect.Enabled = true;
+                BtnConnect.Text = "KẾT NỐI";
+                return;
+            }
+
+            // Gửi thông điệp LoginRequest chứa Nickname
+            await CaroClient.Network.NetworkClient.Instance.SendLoginAsync(PlayerName);
 
             LobbyForm lobby = new LobbyForm(PlayerName);
             this.Hide();
