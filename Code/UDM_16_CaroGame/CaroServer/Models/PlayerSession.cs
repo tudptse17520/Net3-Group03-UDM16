@@ -16,6 +16,9 @@ namespace CaroServer.Models
         // Token dùng để xác thực khi Reconnect
         public string SessionToken { get; private set; }
 
+        // Phòng đang chơi (null nếu ở sảnh chờ)
+        public string? CurrentRoomId { get; set; }
+
         public TcpClient Client { get; private set; }
         public NetworkStream Stream { get; private set; }
 
