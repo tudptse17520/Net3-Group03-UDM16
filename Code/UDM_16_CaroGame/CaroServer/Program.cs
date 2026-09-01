@@ -13,12 +13,13 @@ namespace CaroServer
             
             // Khởi tạo các manager
             var sessionManager = new SessionManager();
-            var tcpServer = new TcpServerManager(sessionManager);
+            var roomManager = new RoomManager();
+            var tcpServer = new TcpServerManager(sessionManager, roomManager);
 
             // Bắt đầu lắng nghe TCP bất đồng bộ
             Task serverTask = tcpServer.StartListeningAsync();
 
-            Console.WriteLine("Bam Enter de tat Server...");
+            Console.WriteLine("Press Enter to stop the Server...");
             Console.ReadLine();
 
             // Dọn dẹp trước khi tắt
