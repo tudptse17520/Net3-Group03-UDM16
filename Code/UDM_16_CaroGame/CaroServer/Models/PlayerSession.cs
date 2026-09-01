@@ -11,7 +11,7 @@ namespace CaroServer.Models
     public class PlayerSession : IDisposable
     {
         // ID của người chơi
-        public string PlayerId { get; private set; }
+        public string PlayerId { get; set; }
 
         // Token dùng để xác thực khi Reconnect
         public string SessionToken { get; private set; }
