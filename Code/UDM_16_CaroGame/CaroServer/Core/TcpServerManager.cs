@@ -106,6 +106,9 @@ namespace CaroServer.Core
         {
             switch (message.Type)
             {
+                case MessageType.LoginRequest:
+                    await HandleLoginAsync(senderSession, message);
+                    break;
                 case MessageType.ChallengeRequest:
                     await HandleChallengeAsync(senderSession, message);
                     break;
@@ -119,6 +122,24 @@ namespace CaroServer.Core
                     Console.WriteLine($"[TcpServer] Unhandled message type: {message.Type}");
                     break;
             }
+        }
+
+        private async Task HandleLoginAsync(PlayerSession session, NetworkMessage message)
+        {
+            var nicknameElement = (JsonElement)message.Payload!;
+            var nickname = nicknameElement.GetString();
+            if (string.IsNullOrWhiteSpace(nickname)) return;
+
+            Console.WriteLine($"[Login] {session.PlayerId} logged in as {nickname}");
+
+            // Cập nhật lại ID theo Nickname
+            _sessionManager.RemoveSession(session.PlayerId);
+            session.PlayerId = nickname;
+            _sessionManager.AddSession(session);
+
+            // Gửi phản hồi thành công
+            var responseMsg = new NetworkMessage(MessageType.LoginResponse, null, message.RequestId);
+            await session.SendMessageAsync(responseMsg);
         }
 
         private async Task HandleChallengeAsync(PlayerSession senderSession, NetworkMessage message)
