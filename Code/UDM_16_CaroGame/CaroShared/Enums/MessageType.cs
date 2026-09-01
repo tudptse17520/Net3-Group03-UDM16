@@ -16,11 +16,13 @@ namespace CaroShared.Enums
         // 4. Trong trận đấu
         MakeMoveRequest,
         MoveMadeEvent,
-        GameStateUpdate, // Nếu cần thiết để update trạng thái toàn ván
+        GameStateUpdate,
         GameOverEvent,
 
-        // Mở rộng sau:
-        // JoinSpectatorRequest,
-        // ReconnectRequest, vân vân...
+        // 5. Khán giả
+        JoinSpectatorRequest,
+        SpectatorStateSnapshot,
+        LeaveSpectatorRequest,
+        SpectatorError
     }
 }
