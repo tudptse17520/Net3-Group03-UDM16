@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading.Tasks;
+using CaroServer.Game;
 using CaroServer.Managers;
 using CaroServer.Models;
 using CaroShared.Constants;
@@ -111,7 +112,9 @@ namespace CaroServer.Core
                 case MessageType.ChallengeResponse:
                     await HandleChallengeResponseAsync(senderSession, message);
                     break;
-                // Các message khác sẽ được xử lý sau
+                case MessageType.MakeMoveRequest:
+                    await HandleMakeMoveAsync(senderSession, message);
+                    break;
                 default:
                     Console.WriteLine($"[TcpServer] Unhandled message type: {message.Type}");
                     break;
@@ -150,8 +153,10 @@ namespace CaroServer.Core
             {
                 if (response.IsAccepted)
                 {
-                    // Đồng ý: tạo phòng chơi
-                    var room = _roomManager.CreateRoom(challengerSession, senderSession);
+                    // Tạo phòng bằng RoomManager của Dev 2
+                    string roomId = _roomManager.CreateRoom(challengerSession.PlayerId, senderSession.PlayerId);
+                    challengerSession.CurrentRoomId = roomId;
+                    senderSession.CurrentRoomId = roomId;
                 }
 
                 // Gửi kết quả trả lời cho người gửi lời mời
@@ -160,6 +165,46 @@ namespace CaroServer.Core
             else
             {
                 Console.WriteLine($"[TcpServer] Challenger {response.ChallengerId} is offline.");
+            }
+        }
+
+        private async Task HandleMakeMoveAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+            var jsonElement = (JsonElement)message.Payload!;
+            var moveRequest = jsonElement.Deserialize<MakeMoveRequest>();
+            if (moveRequest == null) return;
+
+            string? roomId = senderSession.CurrentRoomId;
+            if (string.IsNullOrEmpty(roomId))
+            {
+                Console.WriteLine($"[TcpServer] {senderSession.PlayerId} is not in a room.");
+                return;
+            }
+
+            // Gọi GameEngine của Dev 2
+            MoveResult result = _roomManager.HandleMove(roomId, senderSession.PlayerId, moveRequest.X, moveRequest.Y);
+
+            Console.WriteLine($"[MakeMove] {senderSession.PlayerId} at ({moveRequest.X},{moveRequest.Y}): Valid={result.IsValid}");
+
+            // Broadcast kết quả cho cả hai người chơi
+            var session = _roomManager.GetSession(roomId);
+            if (session != null)
+            {
+                var resultMsg = new NetworkMessage(MessageType.MoveMadeEvent, result);
+
+                var playerX = _sessionManager.GetSession(session.PlayerXId);
+                var playerO = _sessionManager.GetSession(session.PlayerOId);
+
+                if (playerX != null) await playerX.SendMessageAsync(resultMsg);
+                if (playerO != null) await playerO.SendMessageAsync(resultMsg);
+
+                // Nếu game kết thúc, dọn phòng
+                if (result.IsGameOver)
+                {
+                    if (playerX != null) playerX.CurrentRoomId = null;
+                    if (playerO != null) playerO.CurrentRoomId = null;
+                    _roomManager.RemoveRoom(roomId);
+                }
             }
         }
 
