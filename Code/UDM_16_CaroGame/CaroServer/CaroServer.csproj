@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\CaroShared\CaroShared.csproj" />
@@ -12,11 +12,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+ feature/dev5-server-spectator
+    <ProjectReference Include="..\\CaroShared\\CaroShared.csproj" />
+
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Database\" />
+    <Folder Include="Database\" 
+            />develop
   </ItemGroup>
 
 </Project>
