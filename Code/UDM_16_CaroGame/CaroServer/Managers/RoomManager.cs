@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using CaroServer.Game;
+using CaroShared.Constants;
 
 namespace CaroServer.Managers
 {
@@ -10,14 +11,18 @@ namespace CaroServer.Managers
         // Thread-safe vì nhiều luồng có thể tạo/xóa phòng cùng lúc
         private readonly ConcurrentDictionary<string, GameSession> _rooms = new();
 
+        public event Action<string, MoveResult>? OnRoomTimeout;
+
         public string CreateRoom(string playerXId, string playerOId)
         {
             string roomId = "ROOM-" + Guid.NewGuid().ToString("N").Substring(0, 6).ToUpper();
 
             var session = new GameSession(roomId, playerXId, playerOId);
-            _rooms.TryAdd(roomId, session);
-
-            Console.WriteLine($"[RoomManager] Phòng {roomId} đã được tạo: {playerXId} (X) vs {playerOId} (O)");
+            if (_rooms.TryAdd(roomId, session))
+            {
+                Console.WriteLine($"[RoomManager] Phòng {roomId} đã được tạo: {playerXId} (X) vs {playerOId} (O)");
+                StartTurnTimer(session, 1, session.Engine.MoveCount + 1);
+            }
 
             return roomId;
         }
@@ -48,6 +53,38 @@ namespace CaroServer.Managers
             int playerSymbol = session.GetPlayerSymbol(playerId);
             MoveResult result = session.Engine.MakeMove(x, y, playerSymbol);
 
+            if (result.IsValid)
+            {
+                if (result.IsGameOver)
+                {
+                    session.StopTimer();
+                }
+                else
+                {
+                    StartTurnTimer(session, result.NextTurn, session.Engine.MoveCount + 1);
+                }
+            }
+
+            return result;
+        }
+
+        public MoveResult? HandleTimeout(string roomId, int timedOutPlayerSymbol)
+        {
+            if (!_rooms.TryGetValue(roomId, out var session))
+            {
+                return null;
+            }
+
+            MoveResult result = session.Engine.HandleTimeout(timedOutPlayerSymbol);
+            if (!result.IsValid)
+            {
+                return null;
+            }
+
+            session.StopTimer();
+
+            Console.WriteLine($"[RoomManager] Phòng {roomId} hết giờ: Người chơi {timedOutPlayerSymbol} thua");
+            OnRoomTimeout?.Invoke(roomId, result);
             return result;
         }
 
@@ -62,6 +99,8 @@ namespace CaroServer.Managers
             {
                 return null;
             }
+
+            session.StopTimer();
 
             // Người còn lại được tính là người thắng
             int winnerSymbol = session.GetPlayerSymbol(playerId) == 1 ? 2 : 1;
@@ -78,8 +117,11 @@ namespace CaroServer.Managers
 
         public void RemoveRoom(string roomId)
         {
-            _rooms.TryRemove(roomId, out _);
-            Console.WriteLine($"[RoomManager] Phòng {roomId} đã bị xóa");
+            if (_rooms.TryRemove(roomId, out var session))
+            {
+                session.Dispose();
+                Console.WriteLine($"[RoomManager] Phòng {roomId} đã bị xóa");
+            }
         }
 
         public GameSession? GetSession(string roomId)
@@ -91,6 +133,14 @@ namespace CaroServer.Managers
         public int GetActiveRoomCount()
         {
             return _rooms.Count;
+        }
+
+        private void StartTurnTimer(GameSession session, int playerSymbol, int turnNumber)
+        {
+            session.Timer.StartTurn(turnNumber, GameConstants.TurnTimeoutSeconds, _ =>
+            {
+                HandleTimeout(session.RoomId, playerSymbol);
+            });
         }
     }
 }
