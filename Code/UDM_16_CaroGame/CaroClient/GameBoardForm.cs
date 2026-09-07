@@ -15,7 +15,7 @@ namespace CaroClient
         // 0 = trống | 1 = X (Player 1) | 2 = O (Player 2)
         private int[][] _board = CreateJaggedBoard();
 
-        // ── Gameplay state (Bước 3.1) ─────────────────────────────────────
+        // ── Gameplay state ─────────────────────────────────────
         private NetworkClient? _networkClient;
         private string _myPlayerId = string.Empty;
         private int _mySymbol;          // 1=X hoặc 2=O
@@ -44,12 +44,12 @@ namespace CaroClient
             InitBoard();
         }
 
-        // ── Constructor gameplay (Bước 3.2) ───────────────────────────────
-        public GameBoardForm(NetworkClient client, string myPlayerId,
+        // ── Constructor gameplay ───────────────────────────────
+        public GameBoardForm(string myPlayerId,
                              int mySymbol, string p1Name, string p2Name)
             : this()
         {
-            _networkClient = client;
+            _networkClient = CaroClient.Network.NetworkClient.Instance;
             _myPlayerId = myPlayerId;
             _mySymbol = mySymbol;
             _isMyTurn = (mySymbol == 1);   // X đi trước
@@ -59,8 +59,11 @@ namespace CaroClient
             lblPlayer2Name.Text = p2Name;
 
             // Đăng ký nhận event từ server
-            _networkClient.OnMoveMade += HandleMoveMade;
-            _networkClient.OnGameOver += HandleGameOver;
+            if (_networkClient != null)
+            {
+                _networkClient.OnMoveMade += HandleMoveMade;
+                _networkClient.OnGameOver += HandleGameOver;
+            }
 
             // Cập nhật indicator lượt đi ban đầu
             UpdateTurnIndicator();
@@ -125,7 +128,7 @@ namespace CaroClient
         }
 
         // ══════════════════════════════════════════════════════════════════
-        //  Cell_Click — kiểm tra lượt trước khi gửi (Bước 3.3)
+        //  Cell_Click — kiểm tra lượt trước khi gửi
         // ══════════════════════════════════════════════════════════════════
         private void Cell_Click(object? sender, EventArgs e)
         {
@@ -142,7 +145,7 @@ namespace CaroClient
         }
 
         // ══════════════════════════════════════════════════════════════════
-        //  SendMove — gửi MakeMoveRequest lên server (Bước 3.4)
+        //  SendMove — gửi MakeMoveRequest lên server
         // ══════════════════════════════════════════════════════════════════
         private async void SendMove(int row, int col)
         {
@@ -166,7 +169,7 @@ namespace CaroClient
         }
 
         // ══════════════════════════════════════════════════════════════════
-        //  HandleMoveMade — xử lý nước đi từ server (Bước 3.5)
+        //  HandleMoveMade — xử lý nước đi từ server
         // ══════════════════════════════════════════════════════════════════
         private void HandleMoveMade(MoveMadeEventDto dto)
         {
@@ -213,7 +216,7 @@ namespace CaroClient
         }
 
         // ══════════════════════════════════════════════════════════════════
-        //  HandleGameOver — xử lý đầu hàng/timeout (Bước 3.6)
+        //  HandleGameOver — xử lý đầu hàng/timeout 
         // ══════════════════════════════════════════════════════════════════
         private void HandleGameOver(NetworkMessage msg)
         {
@@ -237,7 +240,7 @@ namespace CaroClient
         }
 
         // ══════════════════════════════════════════════════════════════════
-        //  ShowGameResult — hiển thị kết quả game (Bước 3.7)
+        //  ShowGameResult — hiển thị kết quả game
         // ══════════════════════════════════════════════════════════════════
         private void ShowGameResult(int winnerSymbol)
         {
@@ -274,7 +277,7 @@ namespace CaroClient
         }
 
         // ══════════════════════════════════════════════════════════════════
-        //  Helper methods (Bước 3.8)
+        //  Helper methods
         // ══════════════════════════════════════════════════════════════════
         private void UpdateTurnIndicator()
         {
@@ -366,7 +369,7 @@ namespace CaroClient
 
         private void label1_Click(object sender, EventArgs e) { }
 
-        // btnSurrender (Bước 3.9)
+        // btnSurrender
         private async void button1_Click(object sender, EventArgs e)
         {
             if (_isGameOver || _networkClient == null) return;
@@ -385,7 +388,7 @@ namespace CaroClient
             }
         }
 
-        // btnNewGame (Bước 3.10)
+        // btnNewGame
         private void button3_Click(object sender, EventArgs e)
         {
             if (!_isGameOver) return;   // Chỉ cho phép khi game đã kết thúc
@@ -410,7 +413,7 @@ namespace CaroClient
         private void label9_Click(object sender, EventArgs e) { }
 
         // ══════════════════════════════════════════════════════════════════
-        //  Cleanup khi đóng Form (Bước 3.11)
+        //  Cleanup khi đóng Form
         // ══════════════════════════════════════════════════════════════════
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
