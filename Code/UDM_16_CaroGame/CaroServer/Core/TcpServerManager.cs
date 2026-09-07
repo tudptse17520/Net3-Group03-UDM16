@@ -219,7 +219,7 @@ namespace CaroServer.Core
                     Y = moveRequest.Y,
                     WinnerSymbol = result.WinnerSymbol,
                     IsValid = result.IsValid,
-                    ErrorMessage = result.ErrorMessage
+                    ErrorMessage = result.ErrorMessage ?? string.Empty
                 };
 
                 var resultMsg = new NetworkMessage(MessageType.MoveMadeEvent, responseDto);
