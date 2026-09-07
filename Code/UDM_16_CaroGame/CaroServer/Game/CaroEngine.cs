@@ -166,6 +166,53 @@ namespace CaroServer.Game
             }
         }
 
+        public MoveResult HandleTimeout(int timedOutPlayer)
+        {
+            lock (_lockObj)
+            {
+                if (Status != "Playing")
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Trận đấu đã kết thúc",
+                        Player = timedOutPlayer,
+                        IsGameOver = true,
+                        WinnerSymbol = WinnerSymbol
+                    };
+                }
+
+                if (timedOutPlayer != CurrentTurn)
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Lượt đấu đã thay đổi",
+                        Player = timedOutPlayer,
+                        IsGameOver = false,
+                        WinnerSymbol = WinnerSymbol,
+                        NextTurn = CurrentTurn
+                    };
+                }
+
+                Status = "Finished";
+                WinnerSymbol = (timedOutPlayer == 1) ? 2 : 1;
+
+                OnGameOver?.Invoke(WinnerSymbol, false);
+
+                return new MoveResult
+                {
+                    IsValid = true,
+                    Player = timedOutPlayer,
+                    IsGameOver = true,
+                    WinnerSymbol = WinnerSymbol,
+                    IsDraw = false,
+                    ErrorMessage = "Hết thời gian lượt đánh",
+                    NextTurn = 0
+                };
+            }
+        }
+
         // Kiểm tra 4 hướng: ngang, dọc và hai đường chéo
         private bool CheckWin(int x, int y, int player)
         {
