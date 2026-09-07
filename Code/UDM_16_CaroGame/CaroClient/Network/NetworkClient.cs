@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using CaroShared.Constants;
 using CaroShared.Contracts;
@@ -12,63 +12,79 @@ using CaroShared.Protocol;
 
 namespace CaroClient.Network
 {
-    // Quản lý kết nối TCP phía Client (Singleton)
-    public class NetworkClient
+    /// <summary>
+    /// Quản lý kết nối TCP phía Client (Singleton).
+    /// Sử dụng MessageSerializer + MessageFrameDecoder từ CaroShared.
+    /// </summary>
+    public class NetworkClient : IDisposable
     {
         private static NetworkClient? _instance;
         public static NetworkClient Instance => _instance ??= new NetworkClient();
 
-        private TcpClient? _client;
+        // ── Connection ──
+        private TcpClient? _tcpClient;
         private NetworkStream? _stream;
-        private StreamReader? _reader;
-        private StreamWriter? _writer;
         private bool _isConnected;
 
-        public bool IsConnected => _isConnected && _client != null && _client.Connected;
+        // ── Protocol (từ CaroShared) ──
+        private readonly MessageSerializer _serializer = new();
+        private readonly MessageFrameDecoder _decoder = new();
+
+        // ── Thread safety ──
+        private CancellationTokenSource? _cts;
+        private readonly SemaphoreSlim _sendLock = new(1, 1);
+
+        // ── Public properties ──
+        public bool IsConnected => _isConnected && _tcpClient != null && _tcpClient.Connected;
         public string CurrentNickname { get; private set; } = string.Empty;
 
-        // Events để UI lắng nghe
+        // ── Events: Lobby / Login ──
         public event Action<bool, string>? OnConnectResult;
         public event Action<List<string>>? OnPlayerListReceived;
+
+        // ── Events: Gameplay (Bước 2 plan) ──
+        public event Action<MoveMadeEventDto>? OnMoveMade;
+        public event Action<NetworkMessage>? OnGameOver;
+
+        // ── Events: General ──
+        public event Action<NetworkMessage>? OnMessageReceived;   // catch-all
+        public event Action<Exception>? OnError;
         public event Action? OnDisconnected;
 
         private NetworkClient() { }
 
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true,
-            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
-        };
-
-        // Kết nối tới Server
+        // ────────────────────────────────────────────
+        //  ConnectAsync
+        // ────────────────────────────────────────────
         public async Task<bool> ConnectAsync(string ip, int port)
         {
             try
             {
                 Disconnect();
 
-                _client = new TcpClient();
-                await _client.ConnectAsync(ip, port);
+                _tcpClient = new TcpClient();
+                await _tcpClient.ConnectAsync(ip, port);
 
-                _stream = _client.GetStream();
-                _reader = new StreamReader(_stream, Encoding.UTF8);
-                _writer = new StreamWriter(_stream, Encoding.UTF8) { AutoFlush = true };
+                _stream = _tcpClient.GetStream();
                 _isConnected = true;
 
-                // Bắt đầu đọc dữ liệu từ Server
-                _ = ReadLoopAsync();
+                _cts = new CancellationTokenSource();
+                _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
 
                 return true;
             }
             catch (Exception ex)
             {
                 _isConnected = false;
-                OnConnectResult?.Invoke(false, $"Cannot connect to Server ({ip}:{port}): {ex.Message}");
+                OnConnectResult?.Invoke(false,
+                    $"Cannot connect to Server ({ip}:{port}): {ex.Message}");
                 return false;
             }
         }
 
-        // Gửi Nickname đăng nhập lên Server
+        // ────────────────────────────────────────────
+        //  SendLoginAsync  (giữ nguyên logic cũ)
+        // ────────────────────────────────────────────
         public async Task SendLoginAsync(string nickname)
         {
             CurrentNickname = nickname;
@@ -76,79 +92,116 @@ namespace CaroClient.Network
             await SendMessageAsync(message);
         }
 
-        // Gửi NetworkMessage lên Server
+        // ────────────────────────────────────────────
+        //  SendMessageAsync  (dùng MessageSerializer + SemaphoreSlim)
+        // ────────────────────────────────────────────
         public async Task SendMessageAsync(NetworkMessage message)
         {
-            if (!IsConnected || _writer == null) return;
+            if (!IsConnected || _stream == null)
+                throw new InvalidOperationException("Not connected to server.");
 
+            string json = _serializer.Serialize(message);   // đã có "\n" ở cuối
+            byte[] bytes = Encoding.UTF8.GetBytes(json);
+
+            await _sendLock.WaitAsync();
             try
             {
-                string json = JsonSerializer.Serialize(message, JsonOptions) + NetworkConstants.MessageDelimiter;
-                await _writer.WriteAsync(json);
-                await _writer.FlushAsync();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[NetworkClient] Error sending data: {ex.Message}");
-                Disconnect();
-            }
-        }
-
-        // Vòng lặp đọc dữ liệu từ Server
-        private async Task ReadLoopAsync()
-        {
-            try
-            {
-                while (_isConnected && _reader != null)
-                {
-                    string? jsonLine = await _reader.ReadLineAsync();
-                    if (jsonLine == null) break;
-
-                    if (string.IsNullOrWhiteSpace(jsonLine)) continue;
-
-                    var message = JsonSerializer.Deserialize<NetworkMessage>(jsonLine, JsonOptions);
-                    if (message != null)
-                    {
-                        HandleIncomingMessage(message);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[NetworkClient] Error reading stream: {ex.Message}");
+                await _stream.WriteAsync(bytes);
+                await _stream.FlushAsync();
             }
             finally
             {
-                Disconnect();
+                _sendLock.Release();
             }
         }
 
-        // Xử lý message nhận từ Server
-        private void HandleIncomingMessage(NetworkMessage message)
+        // ────────────────────────────────────────────
+        //  ReceiveLoopAsync  (dùng MessageFrameDecoder)
+        // ────────────────────────────────────────────
+        private async Task ReceiveLoopAsync(CancellationToken token)
         {
-            switch (message.Type)
+            byte[] buffer = new byte[4096];
+            try
             {
+                while (!token.IsCancellationRequested && _stream != null)
+                {
+                    int bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length, token);
+
+                    if (bytesRead == 0)
+                    {
+                        // Server đóng kết nối
+                        _isConnected = false;
+                        OnDisconnected?.Invoke();
+                        break;
+                    }
+
+                    string data = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    IReadOnlyList<string> frames = _decoder.Decode(data);
+
+                    foreach (string frame in frames)
+                    {
+                        DispatchMessage(frame);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Dừng loop bình thường khi Disconnect() gọi _cts.Cancel()
+            }
+            catch (Exception ex)
+            {
+                OnError?.Invoke(ex);
+            }
+        }
+
+        // ────────────────────────────────────────────
+        //  DispatchMessage  — phân phối message theo Type
+        // ────────────────────────────────────────────
+        private void DispatchMessage(string frame)
+        {
+            NetworkMessage msg = _serializer.Deserialize(frame);
+
+            switch (msg.Type)
+            {
+                // ── Lobby / Login ──
                 case MessageType.LoginResponse:
                     OnConnectResult?.Invoke(true, "Login successful!");
-                    ParseAndNotifyPlayerList(message);
+                    ParseAndNotifyPlayerList(msg);
                     break;
 
                 case MessageType.PlayerListResponse:
-                    ParseAndNotifyPlayerList(message);
+                    ParseAndNotifyPlayerList(msg);
                     break;
 
+                // ── Gameplay ──
+                case MessageType.MoveMadeEvent:
+                    var dto = _serializer.DeserializePayload<MoveMadeEventDto>(msg);
+                    OnMoveMade?.Invoke(dto);
+                    break;
+
+                case MessageType.GameOverEvent:
+                    OnGameOver?.Invoke(msg);
+                    break;
+
+                // ── Catch-all ──
                 default:
-                    Console.WriteLine($"[NetworkClient] Unhandled message type: {message.Type}");
+                    OnMessageReceived?.Invoke(msg);
                     break;
             }
         }
 
-        // Parse Payload thành danh sách tên người chơi
+        // ────────────────────────────────────────────
+        //  ParseAndNotifyPlayerList  (giữ nguyên logic cũ)
+        // ────────────────────────────────────────────
         private void ParseAndNotifyPlayerList(NetworkMessage message)
         {
             if (message.Payload is JsonElement element)
             {
-                var response = element.Deserialize<PlayerListResponse>(JsonOptions);
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+                var response = element.Deserialize<PlayerListResponse>(options);
                 if (response != null && response.PlayerNames != null)
                 {
                     OnPlayerListReceived?.Invoke(response.PlayerNames);
@@ -156,23 +209,30 @@ namespace CaroClient.Network
             }
         }
 
-        // Ngắt kết nối
+        // ────────────────────────────────────────────
+        //  Disconnect + Dispose
+        // ────────────────────────────────────────────
         public void Disconnect()
         {
-            if (!_isConnected && _client == null) return;
+            if (!_isConnected && _tcpClient == null) return;
 
             _isConnected = false;
-            try { _reader?.Dispose(); } catch { }
-            try { _writer?.Dispose(); } catch { }
-            try { _stream?.Dispose(); } catch { }
-            try { _client?.Close(); _client?.Dispose(); } catch { }
+            _cts?.Cancel();
 
-            _reader = null;
-            _writer = null;
+            try { _stream?.Close(); } catch { }
+            try { _tcpClient?.Close(); _tcpClient?.Dispose(); } catch { }
+
             _stream = null;
-            _client = null;
+            _tcpClient = null;
 
             OnDisconnected?.Invoke();
+        }
+
+        public void Dispose()
+        {
+            Disconnect();
+            _cts?.Dispose();
+            _sendLock.Dispose();
         }
     }
 }
