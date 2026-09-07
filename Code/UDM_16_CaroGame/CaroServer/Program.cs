@@ -11,10 +11,11 @@ namespace CaroServer
         {
             Console.WriteLine("=== UDM_16 CARO SERVER ===");
             
-            // Khởi tạo các manager
+            // Khởi tạo các manager và dịch vụ mạng
             var sessionManager = new SessionManager();
             var roomManager = new RoomManager();
-            var tcpServer = new TcpServerManager(sessionManager, roomManager);
+            var eventBroadcaster = new EventBroadcaster(sessionManager, roomManager);
+            var tcpServer = new TcpServerManager(sessionManager, roomManager, eventBroadcaster);
 
             // Bắt đầu lắng nghe TCP bất đồng bộ
             Task serverTask = tcpServer.StartListeningAsync();

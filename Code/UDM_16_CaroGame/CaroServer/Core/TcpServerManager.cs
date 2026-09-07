@@ -20,14 +20,49 @@ namespace CaroServer.Core
         private readonly TcpListener _listener;
         private readonly SessionManager _sessionManager;
         private readonly RoomManager _roomManager;
+        private readonly EventBroadcaster _broadcaster;
         private bool _isRunning;
 
-        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager)
+        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager) 
+            : this(sessionManager, roomManager, new EventBroadcaster(sessionManager, roomManager))
+        {
+        }
+
+        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, EventBroadcaster broadcaster)
         {
             _sessionManager = sessionManager;
             _roomManager = roomManager;
+            _broadcaster = broadcaster;
             // Lắng nghe kết nối trên port mặc định
             _listener = new TcpListener(IPAddress.Any, NetworkConstants.DefaultPort);
+
+            // Đăng ký xử lý khi phòng hết thời gian
+            _roomManager.OnRoomTimeout += async (roomId, moveResult) =>
+            {
+                // Gửi kết quả hết giờ cho tất cả người trong phòng
+                var responseDto = new MoveMadeEventDto
+                {
+                    RoomId = roomId,
+                    WinnerSymbol = moveResult.WinnerSymbol,
+                    IsValid = true,
+                    ErrorMessage = moveResult.ErrorMessage ?? "Hết thời gian lượt đánh"
+                };
+
+                var timeoutMsg = new NetworkMessage(MessageType.MoveMadeEvent, responseDto);
+                await _broadcaster.BroadcastToRoomAsync(roomId, timeoutMsg);
+
+                // Xóa phòng và giải phóng tài nguyên sau khi kết thúc
+                var room = _roomManager.GetRoom(roomId);
+                if (room != null)
+                {
+                    foreach (var participantId in room.GetAllParticipantIds())
+                    {
+                        var pSession = _sessionManager.GetSession(participantId);
+                        if (pSession != null) pSession.CurrentRoomId = null;
+                    }
+                    _roomManager.RemoveRoom(roomId);
+                }
+            };
         }
 
         // Bắt đầu lắng nghe
@@ -97,6 +132,12 @@ namespace CaroServer.Core
             }
             finally
             {
+                // Nếu client đang xem hoặc chơi trong phòng thì rút khỏi danh sách phòng
+                if (!string.IsNullOrEmpty(session.CurrentRoomId))
+                {
+                    _roomManager.RemoveSpectator(session.CurrentRoomId, session.PlayerId);
+                }
+
                 // Xóa session khi Client ngắt kết nối
                 _sessionManager.RemoveSession(session.PlayerId);
             }
@@ -207,36 +248,34 @@ namespace CaroServer.Core
 
             Console.WriteLine($"[MakeMove] {senderSession.PlayerId} at ({moveRequest.X},{moveRequest.Y}): Valid={result.IsValid}");
 
-            // Broadcast kết quả cho cả hai người chơi
-            var session = _roomManager.GetSession(roomId);
-            if (session != null)
+            // Broadcast kết quả cho tất cả người chơi và khán giả trong phòng
+            var responseDto = new MoveMadeEventDto
             {
-                var responseDto = new MoveMadeEventDto
+                RoomId = roomId,
+                PlayerId = senderSession.PlayerId,
+                X = moveRequest.X,
+                Y = moveRequest.Y,
+                WinnerSymbol = result.WinnerSymbol,
+                IsValid = result.IsValid,
+                ErrorMessage = result.ErrorMessage ?? string.Empty
+            };
+
+            var resultMsg = new NetworkMessage(MessageType.MoveMadeEvent, responseDto);
+            await _broadcaster.BroadcastToRoomAsync(roomId, resultMsg);
+
+            // Nếu game kết thúc, dọn phòng và reset CurrentRoomId cho toàn bộ người tham gia
+            if (result.IsGameOver)
+            {
+                var room = _roomManager.GetRoom(roomId);
+                if (room != null)
                 {
-                    RoomId = roomId,
-                    PlayerId = senderSession.PlayerId,
-                    X = moveRequest.X,
-                    Y = moveRequest.Y,
-                    WinnerSymbol = result.WinnerSymbol,
-                    IsValid = result.IsValid,
-                    ErrorMessage = result.ErrorMessage ?? string.Empty
-                };
-
-                var resultMsg = new NetworkMessage(MessageType.MoveMadeEvent, responseDto);
-
-                var playerX = _sessionManager.GetSession(session.PlayerXId);
-                var playerO = _sessionManager.GetSession(session.PlayerOId);
-
-                if (playerX != null) await playerX.SendMessageAsync(resultMsg);
-                if (playerO != null) await playerO.SendMessageAsync(resultMsg);
-
-                // Nếu game kết thúc, dọn phòng
-                if (result.IsGameOver)
-                {
-                    if (playerX != null) playerX.CurrentRoomId = null;
-                    if (playerO != null) playerO.CurrentRoomId = null;
-                    _roomManager.RemoveRoom(roomId);
+                    foreach (var participantId in room.GetAllParticipantIds())
+                    {
+                        var pSession = _sessionManager.GetSession(participantId);
+                        if (pSession != null) pSession.CurrentRoomId = null;
+                    }
                 }
+                _roomManager.RemoveRoom(roomId);
             }
         }
 
