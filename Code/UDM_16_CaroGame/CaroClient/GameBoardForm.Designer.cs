@@ -343,6 +343,7 @@ namespace CaroClient
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1395, 748);
+            MinimumSize = new Size(1200, 780);
             Controls.Add(lblAppTitle);
             Controls.Add(lblTime);
             Controls.Add(pnlPlayer2);
@@ -354,7 +355,7 @@ namespace CaroClient
             Controls.Add(pnlPlayer1);
             Margin = new Padding(3, 2, 3, 2);
             Name = "GameBoardForm";
-            Text = "Form1";
+            Text = "CARO ONLINE";
             ((System.ComponentModel.ISupportInitialize)picAvatarPlayer1).EndInit();
             pnlPlayer1.ResumeLayout(false);
             pnlPlayer1.PerformLayout();

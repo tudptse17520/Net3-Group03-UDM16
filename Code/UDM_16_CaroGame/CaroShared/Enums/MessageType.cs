@@ -23,8 +23,11 @@ namespace CaroShared.Enums
         GameStateUpdate, // Nếu cần thiết để update trạng thái toàn ván
         GameOverEvent,
 
+        // 5. Khán giả (Spectator)
+        JoinSpectatorRequest,
+        JoinSpectatorResponse,
+
         // Mở rộng sau:
-        // JoinSpectatorRequest,
         // ReconnectRequest, vân vân...
     }
 }
