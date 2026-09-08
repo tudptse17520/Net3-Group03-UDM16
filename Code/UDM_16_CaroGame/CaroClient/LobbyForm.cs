@@ -31,12 +31,13 @@ namespace CaroClient
             BtnCreateRoom.Paint += Button_Paint;
             BtnRefresh.Paint += Button_Paint;
             BtnLogout.Paint += Button_Paint;
+            BtnChallenge.Paint += Button_Paint;
 
-            // Đăng ký sự kiện nhận danh sách người chơi từ Server
+            // Đăng ký sự kiện từ NetworkClient
             CaroClient.Network.NetworkClient.Instance.OnPlayerListReceived += OnPlayerListReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnChallengeReceived += OnChallengeReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnChallengeResponseReceived += OnChallengeResponseReceivedHandler;
             this.FormClosing += LobbyForm_FormClosing;
-
-            // TODO: Sẽ request danh sách khi Server hỗ trợ PlayerListRequest
         }
 
         private void OnPlayerListReceivedHandler(System.Collections.Generic.List<string> playerNames)
@@ -67,9 +68,95 @@ namespace CaroClient
             LblPlayers.Text = $"Người chơi online ({playerNames.Count}):";
         }
 
+        // Xử lý khi nhận được lời mời thách đấu từ người chơi khác
+        private async void OnChallengeReceivedHandler(CaroShared.Contracts.ChallengeRequest request)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => OnChallengeReceivedHandler(request)));
+                return;
+            }
+
+            DialogResult result = MessageBox.Show(
+                $"Người chơi [{request.TargetPlayerId}] muốn THÁCH ĐẤU với bạn!\n\nBạn có chấp nhận không?",
+                "Lời Mời Thách Đấu",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question
+            );
+
+            bool isAccepted = (result == DialogResult.Yes);
+            await CaroClient.Network.NetworkClient.Instance.SendChallengeResponseAsync(request.TargetPlayerId, isAccepted);
+
+            if (isAccepted)
+            {
+                OpenGameBoard();
+            }
+        }
+
+        // Xử lý khi nhận phản hồi thách đấu từ đối thủ
+        private void OnChallengeResponseReceivedHandler(CaroShared.Contracts.ChallengeResponse response)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => OnChallengeResponseReceivedHandler(response)));
+                return;
+            }
+
+            if (response.IsAccepted)
+            {
+                MessageBox.Show($"Đối thủ [{response.ChallengerId}] đã CHẤP NHẬN lời mời!\nĐang vào bàn cờ...", "Thách đấu thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                OpenGameBoard();
+            }
+            else
+            {
+                MessageBox.Show($"Đối thủ [{response.ChallengerId}] đã TỪ CHỐI lời mời thách đấu.", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        // Chuyển sang màn hình Bàn cờ (GameBoardForm)
+        private void OpenGameBoard()
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(OpenGameBoard));
+                return;
+            }
+
+            GameBoardForm gameForm = new GameBoardForm();
+            this.Hide();
+            gameForm.ShowDialog();
+            this.Show();
+        }
+
+        private async void BtnChallenge_Click(object sender, EventArgs e)
+        {
+            if (LstPlayers.SelectedItem == null)
+            {
+                MessageBox.Show("Vui lòng chọn một người chơi trong danh sách để thách đấu!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string selectedItem = LstPlayers.SelectedItem.ToString() ?? string.Empty;
+            string targetNick = selectedItem.Replace("🟢 ", "").Replace(" (Bạn)", "").Replace("👤 ", "").Trim();
+            string myNick = !string.IsNullOrWhiteSpace(PlayerName) 
+                ? PlayerName.Trim() 
+                : CaroClient.Network.NetworkClient.Instance.CurrentNickname.Trim();
+
+            if (string.Equals(targetNick, myNick, StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show("Bạn không thể tự thách đấu chính mình!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            await CaroClient.Network.NetworkClient.Instance.SendChallengeRequestAsync(targetNick);
+            MessageBox.Show($"Đã gửi lời mời thách đấu tới [{targetNick}]. Vui lòng chờ phản hồi...", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
         private void LobbyForm_FormClosing(object? sender, FormClosingEventArgs e)
         {
             CaroClient.Network.NetworkClient.Instance.OnPlayerListReceived -= OnPlayerListReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnChallengeReceived -= OnChallengeReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnChallengeResponseReceived -= OnChallengeResponseReceivedHandler;
             CaroClient.Network.NetworkClient.Instance.Disconnect();
         }
 
