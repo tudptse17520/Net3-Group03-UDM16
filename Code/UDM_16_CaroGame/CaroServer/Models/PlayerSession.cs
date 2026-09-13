@@ -1,6 +1,7 @@
 using System;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using CaroShared.Protocol;
 using CaroShared.Constants;
@@ -22,6 +23,13 @@ namespace CaroServer.Models
         public TcpClient Client { get; private set; }
         public NetworkStream Stream { get; private set; }
 
+        // Dùng chung cho Serialize
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+
         public PlayerSession(TcpClient client)
         {
             Client = client;
@@ -38,9 +46,10 @@ namespace CaroServer.Models
         {
             try
             {
-                string json = JsonSerializer.Serialize(message);
+                string json = JsonSerializer.Serialize(message, JsonOptions);
                 byte[] data = System.Text.Encoding.UTF8.GetBytes(json + NetworkConstants.MessageDelimiter);
                 await Stream.WriteAsync(data, 0, data.Length);
+                await Stream.FlushAsync();
             }
             catch (Exception ex)
             {
