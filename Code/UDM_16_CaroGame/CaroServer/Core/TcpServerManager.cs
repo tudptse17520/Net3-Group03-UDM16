@@ -146,8 +146,8 @@ namespace CaroServer.Core
 
             Console.WriteLine($"[Login] {session.PlayerId} logged in as {nickname}");
 
-            // Cập nhật lại ID theo Nickname
-            _sessionManager.RemoveSession(session.PlayerId);
+            // Xóa session ID tạm nhưng KHÔNG dispose socket (giữ kết nối sống)
+            _sessionManager.RemoveSession(session.PlayerId, dispose: false);
             session.PlayerId = nickname;
             _sessionManager.AddSession(session);
 
