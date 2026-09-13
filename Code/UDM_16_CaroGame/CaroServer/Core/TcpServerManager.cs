@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using CaroServer.Game;
 using CaroServer.Managers;
@@ -21,13 +22,22 @@ namespace CaroServer.Core
         private readonly TcpListener _listener;
         private readonly SessionManager _sessionManager;
         private readonly RoomManager _roomManager;
+        private readonly LobbyManager _lobbyManager;
         private readonly MatchHistoryRepository _matchRepo;
         private bool _isRunning;
 
-        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, MatchHistoryRepository matchRepo)
+        // Dùng chung cho Serialize và Deserialize
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+
+        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, LobbyManager lobbyManager, MatchHistoryRepository matchRepo)
         {
             _sessionManager = sessionManager;
             _roomManager = roomManager;
+            _lobbyManager = lobbyManager;
             _matchRepo = matchRepo;
             // Lắng nghe kết nối trên port mặc định
             _listener = new TcpListener(IPAddress.Any, NetworkConstants.DefaultPort);
@@ -82,7 +92,7 @@ namespace CaroServer.Core
                     try
                     {
                         // Chuyển JSON thành NetworkMessage
-                        var message = JsonSerializer.Deserialize<NetworkMessage>(line);
+                        var message = JsonSerializer.Deserialize<NetworkMessage>(line, JsonOptions);
                         if (message != null)
                         {
                             await HandleIncomingMessage(session, message);
@@ -100,8 +110,12 @@ namespace CaroServer.Core
             }
             finally
             {
-                // Xóa session khi Client ngắt kết nối
+                // Xóa khỏi Lobby và Session khi Client ngắt kết nối
+                _lobbyManager.RemovePlayer(session.PlayerId);
                 _sessionManager.RemoveSession(session.PlayerId);
+
+                // Broadcast danh sách mới cho các Client còn lại
+                await BroadcastPlayerListAsync();
             }
         }
 
@@ -135,21 +149,44 @@ namespace CaroServer.Core
 
             Console.WriteLine($"[Login] {session.PlayerId} logged in as {nickname}");
 
-            // Cập nhật lại ID theo Nickname
-            _sessionManager.RemoveSession(session.PlayerId);
+            // Xóa session ID tạm nhưng KHÔNG dispose socket (giữ kết nối sống)
+            _sessionManager.RemoveSession(session.PlayerId, dispose: false);
             session.PlayerId = nickname;
             _sessionManager.AddSession(session);
 
-            // Gửi phản hồi thành công
-            var responseMsg = new NetworkMessage(MessageType.LoginResponse, null, message.RequestId);
+            // Thêm vào danh sách Lobby
+            _lobbyManager.AddPlayer(nickname, nickname);
+
+            // Gửi LoginResponse kèm danh sách online cho người vừa đăng nhập
+            var playerList = new PlayerListResponse { PlayerNames = _lobbyManager.GetOnlinePlayerNames() };
+            var responseMsg = new NetworkMessage(MessageType.LoginResponse, playerList, message.RequestId);
             await session.SendMessageAsync(responseMsg);
+
+            // Broadcast danh sách mới cho tất cả Client đang online
+            await BroadcastPlayerListAsync();
+        }
+
+        // Gửi PlayerListResponse cho tất cả Client đang online
+        private async Task BroadcastPlayerListAsync()
+        {
+            var playerList = new PlayerListResponse { PlayerNames = _lobbyManager.GetOnlinePlayerNames() };
+            var broadcastMsg = new NetworkMessage(MessageType.PlayerListResponse, playerList);
+
+            foreach (var name in playerList.PlayerNames)
+            {
+                var s = _sessionManager.GetSession(name);
+                if (s != null)
+                {
+                    await s.SendMessageAsync(broadcastMsg);
+                }
+            }
         }
 
         private async Task HandleChallengeAsync(PlayerSession senderSession, NetworkMessage message)
         {
             // Chuyển Payload thành ChallengeRequest
             var jsonElement = (JsonElement)message.Payload!;
-            var request = jsonElement.Deserialize<ChallengeRequest>();
+            var request = jsonElement.Deserialize<ChallengeRequest>(JsonOptions);
             if (request == null) return;
 
             Console.WriteLine($"[Challenge] {senderSession.PlayerId} -> {request.TargetPlayerId}");
@@ -167,7 +204,7 @@ namespace CaroServer.Core
         private async Task HandleChallengeResponseAsync(PlayerSession senderSession, NetworkMessage message)
         {
             var jsonElement = (JsonElement)message.Payload!;
-            var response = jsonElement.Deserialize<ChallengeResponse>();
+            var response = jsonElement.Deserialize<ChallengeResponse>(JsonOptions);
             if (response == null) return;
 
             Console.WriteLine($"[ChallengeResponse] {senderSession.PlayerId} replied to {response.ChallengerId}: {(response.IsAccepted ? "Accept" : "Decline")}");
@@ -177,10 +214,15 @@ namespace CaroServer.Core
             {
                 if (response.IsAccepted)
                 {
-                    // Tạo phòng bằng RoomManager của Dev 2
+                    // Tạo phòng bằng RoomManager
                     string roomId = _roomManager.CreateRoom(challengerSession.PlayerId, senderSession.PlayerId);
                     challengerSession.CurrentRoomId = roomId;
                     senderSession.CurrentRoomId = roomId;
+
+                    // Xóa khỏi Lobby vì đã vào phòng chơi
+                    _lobbyManager.RemovePlayer(challengerSession.PlayerId);
+                    _lobbyManager.RemovePlayer(senderSession.PlayerId);
+                    await BroadcastPlayerListAsync();
                 }
 
                 // Gửi kết quả trả lời cho người gửi lời mời
@@ -195,7 +237,7 @@ namespace CaroServer.Core
         private async Task HandleMakeMoveAsync(PlayerSession senderSession, NetworkMessage message)
         {
             var jsonElement = (JsonElement)message.Payload!;
-            var moveRequest = jsonElement.Deserialize<MakeMoveRequest>();
+            var moveRequest = jsonElement.Deserialize<MakeMoveRequest>(JsonOptions);
             if (moveRequest == null) return;
 
             string? roomId = senderSession.CurrentRoomId;

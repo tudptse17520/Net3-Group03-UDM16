@@ -2,7 +2,6 @@ using System;
 using System.Threading.Tasks;
 using CaroServer.Core;
 using CaroServer.Managers;
-
 using CaroServer.Data;
 using CaroServer.Repositories;
 
@@ -22,7 +21,8 @@ namespace CaroServer
             // Khởi tạo các manager
             var sessionManager = new SessionManager();
             var roomManager = new RoomManager();
-            var tcpServer = new TcpServerManager(sessionManager, roomManager, matchRepo);
+            var lobbyManager = new LobbyManager();
+            var tcpServer = new TcpServerManager(sessionManager, roomManager, lobbyManager, matchRepo);
 
             // Bắt đầu lắng nghe TCP bất đồng bộ
             Task serverTask = tcpServer.StartListeningAsync();
