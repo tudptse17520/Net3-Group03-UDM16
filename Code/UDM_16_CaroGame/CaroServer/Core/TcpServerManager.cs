@@ -135,6 +135,9 @@ namespace CaroServer.Core
                 case MessageType.MakeMoveRequest:
                     await HandleMakeMoveAsync(senderSession, message);
                     break;
+                case MessageType.MatchHistoryRequest:
+                    await HandleMatchHistoryAsync(senderSession, message);
+                    break;
                 default:
                     Console.WriteLine($"[TcpServer] Unhandled message type: {message.Type}");
                     break;
@@ -295,6 +298,36 @@ namespace CaroServer.Core
                     _roomManager.RemoveRoom(roomId);
                 }
             }
+        }
+
+        private async Task HandleMatchHistoryAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+            var jsonElement = (JsonElement)message.Payload!;
+            var request = jsonElement.Deserialize<MatchHistoryRequest>(JsonOptions) ?? new MatchHistoryRequest();
+            
+            // Nếu Client không truyền PlayerId, lấy mặc định là chính người gửi
+            string targetPlayerId = request.PlayerId ?? senderSession.PlayerId;
+
+            Console.WriteLine($"[MatchHistory] Fetching history for {targetPlayerId}");
+
+            var histories = await _matchRepo.GetMatchHistoryAsync(targetPlayerId);
+
+            var responseDto = new MatchHistoryResponse();
+            foreach (var h in histories)
+            {
+                responseDto.Matches.Add(new MatchDto
+                {
+                    RoomId = h.RoomId,
+                    PlayerXId = h.PlayerXId,
+                    PlayerOId = h.PlayerOId,
+                    WinnerSymbol = h.WinnerSymbol,
+                    TotalMoves = h.TotalMoves,
+                    PlayedAt = h.PlayedAt
+                });
+            }
+
+            var responseMsg = new NetworkMessage(MessageType.MatchHistoryResponse, responseDto, message.RequestId);
+            await senderSession.SendMessageAsync(responseMsg);
         }
 
         public void Stop()

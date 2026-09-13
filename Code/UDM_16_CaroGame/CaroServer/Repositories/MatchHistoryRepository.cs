@@ -1,5 +1,8 @@
 using System;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.EntityFrameworkCore;
 using CaroServer.Data;
 using CaroServer.Models;
 
@@ -25,6 +28,23 @@ namespace CaroServer.Repositories
             catch (Exception ex)
             {
                 Console.WriteLine($"[DB Error] Lỗi khi lưu trận đấu: {ex.Message}");
+            }
+        }
+
+        public async Task<List<MatchHistory>> GetMatchHistoryAsync(string playerId)
+        {
+            try
+            {
+                // Sử dụng EF Core LINQ để truy vấn
+                return await _dbContext.MatchHistories
+                    .Where(m => m.PlayerXId == playerId || m.PlayerOId == playerId)
+                    .OrderByDescending(m => m.PlayedAt)
+                    .ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB Error] Lỗi khi truy vấn lịch sử đấu của {playerId}: {ex.Message}");
+                return new List<MatchHistory>();
             }
         }
     }
