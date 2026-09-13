@@ -183,7 +183,7 @@ namespace CaroServer.Core
         {
             // Chuyển Payload thành ChallengeRequest
             var jsonElement = (JsonElement)message.Payload!;
-            var request = jsonElement.Deserialize<ChallengeRequest>();
+            var request = jsonElement.Deserialize<ChallengeRequest>(JsonOptions);
             if (request == null) return;
 
             Console.WriteLine($"[Challenge] {senderSession.PlayerId} -> {request.TargetPlayerId}");
@@ -201,7 +201,7 @@ namespace CaroServer.Core
         private async Task HandleChallengeResponseAsync(PlayerSession senderSession, NetworkMessage message)
         {
             var jsonElement = (JsonElement)message.Payload!;
-            var response = jsonElement.Deserialize<ChallengeResponse>();
+            var response = jsonElement.Deserialize<ChallengeResponse>(JsonOptions);
             if (response == null) return;
 
             Console.WriteLine($"[ChallengeResponse] {senderSession.PlayerId} replied to {response.ChallengerId}: {(response.IsAccepted ? "Accept" : "Decline")}");
@@ -211,10 +211,15 @@ namespace CaroServer.Core
             {
                 if (response.IsAccepted)
                 {
-                    // Tạo phòng bằng RoomManager của Dev 2
+                    // Tạo phòng bằng RoomManager
                     string roomId = _roomManager.CreateRoom(challengerSession.PlayerId, senderSession.PlayerId);
                     challengerSession.CurrentRoomId = roomId;
                     senderSession.CurrentRoomId = roomId;
+
+                    // Xóa khỏi Lobby vì đã vào phòng chơi
+                    _lobbyManager.RemovePlayer(challengerSession.PlayerId);
+                    _lobbyManager.RemovePlayer(senderSession.PlayerId);
+                    await BroadcastPlayerListAsync();
                 }
 
                 // Gửi kết quả trả lời cho người gửi lời mời
@@ -229,7 +234,7 @@ namespace CaroServer.Core
         private async Task HandleMakeMoveAsync(PlayerSession senderSession, NetworkMessage message)
         {
             var jsonElement = (JsonElement)message.Payload!;
-            var moveRequest = jsonElement.Deserialize<MakeMoveRequest>();
+            var moveRequest = jsonElement.Deserialize<MakeMoveRequest>(JsonOptions);
             if (moveRequest == null) return;
 
             string? roomId = senderSession.CurrentRoomId;
