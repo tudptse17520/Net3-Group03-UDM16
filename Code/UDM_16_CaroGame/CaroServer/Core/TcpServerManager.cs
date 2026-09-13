@@ -12,6 +12,7 @@ using CaroShared.Constants;
 using CaroShared.Enums;
 using CaroShared.Protocol;
 using CaroShared.Contracts;
+using CaroServer.Repositories;
 
 namespace CaroServer.Core
 {
@@ -22,6 +23,7 @@ namespace CaroServer.Core
         private readonly SessionManager _sessionManager;
         private readonly RoomManager _roomManager;
         private readonly LobbyManager _lobbyManager;
+        private readonly MatchHistoryRepository _matchRepo;
         private bool _isRunning;
 
         // Dùng chung cho Serialize và Deserialize
@@ -31,11 +33,12 @@ namespace CaroServer.Core
             Converters = { new JsonStringEnumConverter() }
         };
 
-        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, LobbyManager lobbyManager)
+        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, LobbyManager lobbyManager, MatchHistoryRepository matchRepo)
         {
             _sessionManager = sessionManager;
             _roomManager = roomManager;
             _lobbyManager = lobbyManager;
+            _matchRepo = matchRepo;
             // Lắng nghe kết nối trên port mặc định
             _listener = new TcpListener(IPAddress.Any, NetworkConstants.DefaultPort);
         }
@@ -132,6 +135,12 @@ namespace CaroServer.Core
                 case MessageType.MakeMoveRequest:
                     await HandleMakeMoveAsync(senderSession, message);
                     break;
+                case MessageType.MatchHistoryRequest:
+                    await HandleMatchHistoryAsync(senderSession, message);
+                    break;
+                case MessageType.PlayerListRequest:
+                    await HandlePlayerListRequestAsync(senderSession, message);
+                    break;
                 default:
                     Console.WriteLine($"[TcpServer] Unhandled message type: {message.Type}");
                     break;
@@ -161,6 +170,13 @@ namespace CaroServer.Core
 
             // Broadcast danh sách mới cho tất cả Client đang online
             await BroadcastPlayerListAsync();
+        }
+
+        private async Task HandlePlayerListRequestAsync(PlayerSession session, NetworkMessage message)
+        {
+            var playerList = new PlayerListResponse { PlayerNames = _lobbyManager.GetOnlinePlayerNames() };
+            var responseMsg = new NetworkMessage(MessageType.PlayerListResponse, playerList, message.RequestId);
+            await session.SendMessageAsync(responseMsg);
         }
 
         // Gửi PlayerListResponse cho tất cả Client đang online
@@ -272,14 +288,56 @@ namespace CaroServer.Core
                 if (playerX != null) await playerX.SendMessageAsync(resultMsg);
                 if (playerO != null) await playerO.SendMessageAsync(resultMsg);
 
-                // Nếu game kết thúc, dọn phòng
+                // Nếu game kết thúc, lưu DB và dọn phòng
                 if (result.IsGameOver)
                 {
+                    var match = new MatchHistory
+                    {
+                        RoomId = roomId,
+                        PlayerXId = session.PlayerXId,
+                        PlayerOId = session.PlayerOId,
+                        WinnerSymbol = result.WinnerSymbol,
+                        TotalMoves = session.Engine.MoveCount,
+                        PlayedAt = DateTime.Now
+                    };
+                    // Chạy ngầm lưu DB không block luồng mạng
+                    _ = _matchRepo.SaveMatchAsync(match);
+
                     if (playerX != null) playerX.CurrentRoomId = null;
                     if (playerO != null) playerO.CurrentRoomId = null;
                     _roomManager.RemoveRoom(roomId);
                 }
             }
+        }
+
+        private async Task HandleMatchHistoryAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+            var jsonElement = (JsonElement)message.Payload!;
+            var request = jsonElement.Deserialize<MatchHistoryRequest>(JsonOptions) ?? new MatchHistoryRequest();
+            
+            // Nếu Client không truyền PlayerId, lấy mặc định là chính người gửi
+            string targetPlayerId = request.PlayerId ?? senderSession.PlayerId;
+
+            Console.WriteLine($"[MatchHistory] Fetching history for {targetPlayerId}");
+
+            var histories = await _matchRepo.GetMatchHistoryAsync(targetPlayerId);
+
+            var responseDto = new MatchHistoryResponse();
+            foreach (var h in histories)
+            {
+                responseDto.Matches.Add(new MatchDto
+                {
+                    RoomId = h.RoomId,
+                    PlayerXId = h.PlayerXId,
+                    PlayerOId = h.PlayerOId,
+                    WinnerSymbol = h.WinnerSymbol,
+                    TotalMoves = h.TotalMoves,
+                    PlayedAt = h.PlayedAt
+                });
+            }
+
+            var responseMsg = new NetworkMessage(MessageType.MatchHistoryResponse, responseDto, message.RequestId);
+            await senderSession.SendMessageAsync(responseMsg);
         }
 
         public void Stop()
