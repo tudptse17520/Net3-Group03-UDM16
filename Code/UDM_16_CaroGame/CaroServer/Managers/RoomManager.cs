@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using CaroServer.Game;
+using CaroShared.Enums;
 
 namespace CaroServer.Managers
 {
@@ -12,10 +13,33 @@ namespace CaroServer.Managers
 
         public string CreateRoom(string playerXId, string playerOId)
         {
+            if (string.IsNullOrWhiteSpace(playerXId))
+            {
+                Console.WriteLine("[RoomManager] CreateRoom thất bại: playerXId trống");
+                return string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(playerOId))
+            {
+                Console.WriteLine("[RoomManager] CreateRoom thất bại: playerOId trống");
+                return string.Empty;
+            }
+
+            if (string.Equals(playerXId, playerOId, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("[RoomManager] CreateRoom thất bại: không thể tự đấu với chính mình");
+                return string.Empty;
+            }
+
             string roomId = "ROOM-" + Guid.NewGuid().ToString("N").Substring(0, 6).ToUpper();
 
             var session = new GameSession(roomId, playerXId, playerOId);
-            _rooms.TryAdd(roomId, session);
+
+            if (!_rooms.TryAdd(roomId, session))
+            {
+                Console.WriteLine($"[RoomManager] CreateRoom thất bại: trùng roomId {roomId}");
+                return string.Empty;
+            }
 
             Console.WriteLine($"[RoomManager] Phòng {roomId} đã được tạo: {playerXId} (X) vs {playerOId} (O)");
 
@@ -24,11 +48,34 @@ namespace CaroServer.Managers
 
         public MoveResult HandleMove(string roomId, string playerId, int x, int y)
         {
+            if (string.IsNullOrWhiteSpace(roomId))
+            {
+                return new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.InvalidRequest,
+                    ErrorMessage = "roomId không hợp lệ",
+                    X = x, Y = y
+                };
+            }
+
+            if (string.IsNullOrWhiteSpace(playerId))
+            {
+                return new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.InvalidRequest,
+                    ErrorMessage = "playerId không hợp lệ",
+                    X = x, Y = y
+                };
+            }
+
             if (!_rooms.TryGetValue(roomId, out var session))
             {
                 return new MoveResult
                 {
                     IsValid = false,
+                    ErrorCode = ErrorCode.RoomNotFound,
                     ErrorMessage = "Phòng không tồn tại",
                     X = x, Y = y
                 };
@@ -40,7 +87,8 @@ namespace CaroServer.Managers
                 return new MoveResult
                 {
                     IsValid = false,
-                    ErrorMessage = "Bạn là khán giả, không được đánh cờ",
+                    ErrorCode = ErrorCode.PlayerNotInRoom,
+                    ErrorMessage = "Bạn không phải người chơi trong phòng này",
                     X = x, Y = y
                 };
             }
@@ -53,14 +101,34 @@ namespace CaroServer.Managers
 
         public MoveResult? LeaveRoom(string roomId, string playerId)
         {
+            if (string.IsNullOrWhiteSpace(roomId))
+            {
+                return new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.InvalidRequest,
+                    ErrorMessage = "roomId không hợp lệ"
+                };
+            }
+
             if (!_rooms.TryGetValue(roomId, out var session))
             {
-                return null;
+                return new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.RoomNotFound,
+                    ErrorMessage = "Phòng không tồn tại"
+                };
             }
 
             if (!session.IsPlayer(playerId))
             {
-                return null;
+                return new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.PlayerNotInRoom,
+                    ErrorMessage = "Người chơi không thuộc phòng này"
+                };
             }
 
             // Người còn lại được tính là người thắng
@@ -78,8 +146,20 @@ namespace CaroServer.Managers
 
         public void RemoveRoom(string roomId)
         {
-            _rooms.TryRemove(roomId, out _);
-            Console.WriteLine($"[RoomManager] Phòng {roomId} đã bị xóa");
+            if (string.IsNullOrWhiteSpace(roomId))
+            {
+                Console.WriteLine("[RoomManager] RemoveRoom: roomId trống, bỏ qua");
+                return;
+            }
+
+            if (_rooms.TryRemove(roomId, out _))
+            {
+                Console.WriteLine($"[RoomManager] Phòng {roomId} đã bị xóa");
+            }
+            else
+            {
+                Console.WriteLine($"[RoomManager] RemoveRoom: Phòng {roomId} không tồn tại");
+            }
         }
 
         public GameSession? GetSession(string roomId)

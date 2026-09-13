@@ -26,5 +26,8 @@ namespace CaroShared.Enums
         // Mở rộng sau:
         // JoinSpectatorRequest,
         // ReconnectRequest, vân vân...
+
+        // 5. Xử lý lỗi
+        ErrorResponse,
     }
 }

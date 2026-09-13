@@ -1,5 +1,6 @@
 using System;
 using CaroShared.Constants;
+using CaroShared.Enums;
 
 namespace CaroServer.Game
 {
@@ -8,6 +9,7 @@ namespace CaroServer.Game
     {
         public bool IsValid { get; set; }
         public string? ErrorMessage { get; set; }
+        public ErrorCode ErrorCode { get; set; }
         public int X { get; set; }
         public int Y { get; set; }
         // 1 = X, 2 = O
@@ -65,6 +67,7 @@ namespace CaroServer.Game
                     {
                         IsValid = false,
                         ErrorMessage = reason,
+                        ErrorCode = ErrorCode.GameAlreadyFinished,
                         X = x, Y = y, Player = player
                     };
                 }
@@ -77,6 +80,7 @@ namespace CaroServer.Game
                     {
                         IsValid = false,
                         ErrorMessage = reason,
+                        ErrorCode = ErrorCode.NotPlayerTurn,
                         X = x, Y = y, Player = player
                     };
                 }
@@ -90,6 +94,7 @@ namespace CaroServer.Game
                     {
                         IsValid = false,
                         ErrorMessage = reason,
+                        ErrorCode = ErrorCode.InvalidCoordinates,
                         X = x, Y = y, Player = player
                     };
                 }
@@ -102,6 +107,7 @@ namespace CaroServer.Game
                     {
                         IsValid = false,
                         ErrorMessage = reason,
+                        ErrorCode = ErrorCode.CellOccupied,
                         X = x, Y = y, Player = player
                     };
                 }

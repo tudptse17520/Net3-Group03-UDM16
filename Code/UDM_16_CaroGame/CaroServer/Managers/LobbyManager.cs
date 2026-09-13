@@ -15,6 +15,9 @@ namespace CaroServer.Managers
         // Thêm người chơi mới vào sảnh
         public bool AddPlayer(string playerId, string playerName)
         {
+            if (string.IsNullOrWhiteSpace(playerId) || string.IsNullOrWhiteSpace(playerName))
+                return false;
+
             // TryAdd tự động xử lý an toàn luồng (thread-safe)
             return _onlinePlayers.TryAdd(playerId, playerName);
         }
@@ -22,6 +25,9 @@ namespace CaroServer.Managers
         // Xóa người chơi khỏi sảnh khi họ thoát game hoặc vào phòng chơi
         public void RemovePlayer(string playerId)
         {
+            if (string.IsNullOrWhiteSpace(playerId))
+                return;
+
             // TryRemove xóa an toàn không lo xung đột dữ liệu
             _onlinePlayers.TryRemove(playerId, out _);
         }
