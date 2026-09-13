@@ -49,6 +49,7 @@ namespace CaroServer.Models
                 string json = JsonSerializer.Serialize(message, JsonOptions);
                 byte[] data = System.Text.Encoding.UTF8.GetBytes(json + NetworkConstants.MessageDelimiter);
                 await Stream.WriteAsync(data, 0, data.Length);
+                await Stream.FlushAsync();
             }
             catch (Exception ex)
             {
