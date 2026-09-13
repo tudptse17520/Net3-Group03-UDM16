@@ -11,6 +11,7 @@ using CaroShared.Constants;
 using CaroShared.Enums;
 using CaroShared.Protocol;
 using CaroShared.Contracts;
+using CaroServer.Repositories;
 
 namespace CaroServer.Core
 {
@@ -20,12 +21,14 @@ namespace CaroServer.Core
         private readonly TcpListener _listener;
         private readonly SessionManager _sessionManager;
         private readonly RoomManager _roomManager;
+        private readonly MatchHistoryRepository _matchRepo;
         private bool _isRunning;
 
-        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager)
+        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, MatchHistoryRepository matchRepo)
         {
             _sessionManager = sessionManager;
             _roomManager = roomManager;
+            _matchRepo = matchRepo;
             // Lắng nghe kết nối trên port mặc định
             _listener = new TcpListener(IPAddress.Any, NetworkConstants.DefaultPort);
         }
@@ -230,9 +233,21 @@ namespace CaroServer.Core
                 if (playerX != null) await playerX.SendMessageAsync(resultMsg);
                 if (playerO != null) await playerO.SendMessageAsync(resultMsg);
 
-                // Nếu game kết thúc, dọn phòng
+                // Nếu game kết thúc, lưu DB và dọn phòng
                 if (result.IsGameOver)
                 {
+                    var match = new MatchHistory
+                    {
+                        RoomId = roomId,
+                        PlayerXId = session.PlayerXId,
+                        PlayerOId = session.PlayerOId,
+                        WinnerSymbol = result.WinnerSymbol,
+                        TotalMoves = session.Engine.MoveCount,
+                        PlayedAt = DateTime.Now
+                    };
+                    // Chạy ngầm lưu DB không block luồng mạng
+                    _ = _matchRepo.SaveMatchAsync(match);
+
                     if (playerX != null) playerX.CurrentRoomId = null;
                     if (playerO != null) playerO.CurrentRoomId = null;
                     _roomManager.RemoveRoom(roomId);
