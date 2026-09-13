@@ -138,6 +138,9 @@ namespace CaroServer.Core
                 case MessageType.MatchHistoryRequest:
                     await HandleMatchHistoryAsync(senderSession, message);
                     break;
+                case MessageType.PlayerListRequest:
+                    await HandlePlayerListRequestAsync(senderSession, message);
+                    break;
                 default:
                     Console.WriteLine($"[TcpServer] Unhandled message type: {message.Type}");
                     break;
@@ -167,6 +170,13 @@ namespace CaroServer.Core
 
             // Broadcast danh sách mới cho tất cả Client đang online
             await BroadcastPlayerListAsync();
+        }
+
+        private async Task HandlePlayerListRequestAsync(PlayerSession session, NetworkMessage message)
+        {
+            var playerList = new PlayerListResponse { PlayerNames = _lobbyManager.GetOnlinePlayerNames() };
+            var responseMsg = new NetworkMessage(MessageType.PlayerListResponse, playerList, message.RequestId);
+            await session.SendMessageAsync(responseMsg);
         }
 
         // Gửi PlayerListResponse cho tất cả Client đang online
