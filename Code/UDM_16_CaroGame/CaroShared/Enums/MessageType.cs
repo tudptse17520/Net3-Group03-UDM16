@@ -5,8 +5,13 @@ namespace CaroShared.Enums
         // 1. Connection & Session
         LoginRequest,
         LoginResponse,
+        
+        // Heartbeat - Sprint 2 - Dev 5
+        Ping,
+        Pong,
 
         // 2. Sảnh chờ (Lobby)
+        PlayerListRequest,
         PlayerListResponse,
 
         // 3. Thách đấu
