@@ -1,9 +1,10 @@
 using System;
+using CaroShared.Contracts;
 
 namespace CaroServer.Game
 {
     // Đại diện cho một ván đấu trong phòng
-    public class GameSession
+    public class GameSession : IDisposable
     {
         public string RoomId { get; private set; }
         public string PlayerXId { get; private set; }
@@ -11,6 +12,7 @@ namespace CaroServer.Game
 
         // Mỗi ván đấu sử dụng một CaroEngine riêng
         public CaroEngine Engine { get; private set; }
+        public TurnTimer Timer { get; private set; }
         public DateTime CreatedAt { get; private set; }
 
         public GameSession(string roomId, string playerXId, string playerOId)
@@ -19,6 +21,7 @@ namespace CaroServer.Game
             PlayerXId = playerXId;
             PlayerOId = playerOId;
             Engine = new CaroEngine();
+            Timer = new TurnTimer();
             CreatedAt = DateTime.Now;
         }
 
@@ -33,6 +36,32 @@ namespace CaroServer.Game
             if (playerId == PlayerXId) return 1;
             if (playerId == PlayerOId) return 2;
             return 0;
+        }
+
+        public int GetRemainingTimeSeconds()
+        {
+            return Timer.GetRemainingSeconds();
+        }
+
+        public void StopTimer()
+        {
+            Timer.Stop();
+        }
+
+        public GameSessionDto ToDto()
+        {
+            return new GameSessionDto
+            {
+                Board = Engine.Board,
+                CurrentTurn = Engine.CurrentTurn,
+                Status = Engine.Status,
+                RemainingTimeSeconds = GetRemainingTimeSeconds()
+            };
+        }
+
+        public void Dispose()
+        {
+            Timer.Dispose();
         }
     }
 }

@@ -3,74 +3,180 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Text.Json;
 using CaroServer.Game;
+using CaroServer.Models;
+using CaroShared.Constants;
+using CaroShared.Enums;
 
 namespace CaroServer.Managers
 {
-    // Quản lý các phòng chơi đang diễn ra trên Server
+    // Quản lý các phòng chơi
     public class RoomManager
     {
-        // Thread-safe vì nhiều luồng có thể tạo/xóa phòng cùng lúc
-        private readonly ConcurrentDictionary<string, GameSession> _rooms = new();
+        private readonly ConcurrentDictionary<string, Room> _rooms = new();
 
+        // Sự kiện khi hết thời gian của lượt đánh
+        public event Action<string, MoveResult>? OnRoomTimeout;
+
+        // Tạo phòng mới
         public string CreateRoom(string playerXId, string playerOId)
         {
+            if (string.IsNullOrWhiteSpace(playerXId))
+            {
+                Console.WriteLine("[RoomManager] CreateRoom thất bại: playerXId trống");
+                return string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(playerOId))
+            {
+                Console.WriteLine("[RoomManager] CreateRoom thất bại: playerOId trống");
+                return string.Empty;
+            }
+
+            if (string.Equals(playerXId, playerOId, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("[RoomManager] CreateRoom thất bại: không thể tự đấu với chính mình");
+                return string.Empty;
+            }
+
             string roomId = "ROOM-" + Guid.NewGuid().ToString("N").Substring(0, 6).ToUpper();
 
-            var session = new GameSession(roomId, playerXId, playerOId);
-            _rooms.TryAdd(roomId, session);
+            var room = new Room(roomId, playerXId, playerOId);
 
-            Console.WriteLine($"[RoomManager] Phòng {roomId} đã được tạo: {playerXId} (X) vs {playerOId} (O)");
+            if (_rooms.TryAdd(roomId, room))
+            {
+                Console.WriteLine(
+                    $"[RoomManager] Room {roomId} created: {playerXId} (X) vs {playerOId} (O)");
 
-            // DEV 5: Ghi log sự kiện tạo phòng.
-            WriteGameEvent(roomId, "RoomCreated", playerXId,
-                message: $"Phòng được tạo: {playerXId} (X) vs {playerOId} (O)");
+                // Bắt đầu đếm giờ cho lượt đầu tiên của Player X
+                StartTurnTimer(
+                    room.Session,
+                    1,
+                    room.Session.Engine.MoveCount + 1);
+
+                // GAME EVENT LOG
+                WriteGameEvent(
+                    roomId,
+                    "RoomCreated",
+                    playerXId,
+                    message: $"Phòng được tạo: {playerXId} (X) vs {playerOId} (O)");
+            }
 
             return roomId;
         }
 
+        // Xử lý nước đi của người chơi
         public MoveResult HandleMove(string roomId, string playerId, int x, int y)
         {
-            if (!_rooms.TryGetValue(roomId, out var session))
+            if (string.IsNullOrWhiteSpace(roomId))
             {
                 var invalidResult = new MoveResult
                 {
                     IsValid = false,
+                    ErrorCode = ErrorCode.InvalidRequest,
+                    ErrorMessage = "roomId không hợp lệ",
+                    X = x,
+                    Y = y
+                };
+
+                WriteGameEvent(
+                    roomId,
+                    "InvalidMove",
+                    playerId,
+                    x,
+                    y,
+                    isValid: false,
+                    message: invalidResult.ErrorMessage);
+
+                return invalidResult;
+            }
+
+            if (string.IsNullOrWhiteSpace(playerId))
+            {
+                var invalidResult = new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.InvalidRequest,
+                    ErrorMessage = "playerId không hợp lệ",
+                    X = x,
+                    Y = y
+                };
+
+                WriteGameEvent(
+                    roomId,
+                    "InvalidMove",
+                    playerId,
+                    x,
+                    y,
+                    isValid: false,
+                    message: invalidResult.ErrorMessage);
+
+                return invalidResult;
+            }
+
+            var room = GetRoom(roomId);
+
+            if (room == null)
+            {
+                var invalidResult = new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.RoomNotFound,
                     ErrorMessage = "Phòng không tồn tại",
                     X = x,
                     Y = y
                 };
 
-                // DEV 5: Ghi log nước đi không hợp lệ.
-                WriteGameEvent(roomId, "InvalidMove", playerId, x, y,
-                    isValid: false, message: invalidResult.ErrorMessage);
+                WriteGameEvent(
+                    roomId,
+                    "InvalidMove",
+                    playerId,
+                    x,
+                    y,
+                    isValid: false,
+                    message: invalidResult.ErrorMessage);
 
                 return invalidResult;
             }
 
             // Khán giả không được phép thực hiện nước đi
-            if (!session.IsPlayer(playerId))
+            if (!room.IsPlayer(playerId))
             {
                 var invalidResult = new MoveResult
                 {
                     IsValid = false,
-                    ErrorMessage = "Bạn là khán giả, không được đánh cờ",
+                    ErrorCode = ErrorCode.PlayerNotInRoom,
+                    ErrorMessage = "Bạn không phải người chơi trong phòng này",
                     X = x,
                     Y = y
                 };
 
-                // DEV 5: Ghi log spectator cố thực hiện nước đi.
-                WriteGameEvent(roomId, "InvalidMove", playerId, x, y,
-                    isValid: false, message: invalidResult.ErrorMessage);
+                WriteGameEvent(
+                    roomId,
+                    "InvalidMove",
+                    playerId,
+                    x,
+                    y,
+                    isValid: false,
+                    message: invalidResult.ErrorMessage);
 
                 return invalidResult;
             }
 
-            int playerSymbol = session.GetPlayerSymbol(playerId);
-            MoveResult result = session.Engine.MakeMove(x, y, playerSymbol);
+            int playerSymbol = room.GetPlayerSymbol(playerId);
+
+            MoveResult result =
+                room.Session.Engine.MakeMove(x, y, playerSymbol);
 
             if (result.IsValid)
             {
-                WriteGameEvent(roomId, "MoveMade", playerId, x, y, playerSymbol,
+                // GAME EVENT LOG: nước đi hợp lệ
+                WriteGameEvent(
+                    roomId,
+                    "MoveMade",
+                    playerId,
+                    x,
+                    y,
+                    playerSymbol,
                     isValid: true,
                     result: result.IsGameOver
                         ? (result.IsDraw ? "Draw" : "GameOver")
@@ -78,48 +184,191 @@ namespace CaroServer.Managers
 
                 if (result.IsGameOver)
                 {
-                    WriteGameEvent(roomId,
+                    room.Session.StopTimer();
+
+                    // GAME EVENT LOG: kết thúc trận
+                    WriteGameEvent(
+                        roomId,
                         result.IsDraw ? "GameDraw" : "GameOver",
-                        playerId, x, y, playerSymbol,
+                        playerId,
+                        x,
+                        y,
+                        playerSymbol,
                         isValid: true,
-                        result: result.IsDraw ? "Draw" : $"Winner: {result.WinnerSymbol}",
+                        result: result.IsDraw
+                            ? "Draw"
+                            : $"Winner: {result.WinnerSymbol}",
                         message: result.IsDraw
                             ? "Trận đấu kết thúc với kết quả hòa"
                             : $"Người chơi {result.WinnerSymbol} thắng");
                 }
+                else
+                {
+                    // Bắt đầu đếm giờ cho lượt kế tiếp
+                    StartTurnTimer(
+                        room.Session,
+                        result.NextTurn,
+                        room.Session.Engine.MoveCount + 1);
+                }
             }
             else
             {
-                // GameEngine tự quyết định lý do nước đi không hợp lệ.
-                WriteGameEvent(roomId, "InvalidMove", playerId, x, y, playerSymbol,
-                    isValid: false, message: result.ErrorMessage);
+                // GAME EVENT LOG: nước đi không hợp lệ
+                WriteGameEvent(
+                    roomId,
+                    "InvalidMove",
+                    playerId,
+                    x,
+                    y,
+                    playerSymbol,
+                    isValid: false,
+                    message: result.ErrorMessage);
             }
+
+            return result;
+        }
+
+        public MoveResult? HandleTimeout(
+            string roomId,
+            int timedOutPlayerSymbol)
+        {
+            var room = GetRoom(roomId);
+
+            if (room == null)
+            {
+                return null;
+            }
+
+            MoveResult result =
+                room.Session.Engine.HandleTimeout(timedOutPlayerSymbol);
+
+            if (!result.IsValid)
+            {
+                return null;
+            }
+
+            room.Session.StopTimer();
+
+            Console.WriteLine(
+                $"[RoomManager] Room {roomId} timeout: Player {timedOutPlayerSymbol} lost");
+
+            // GAME EVENT LOG: timeout
+            WriteGameEvent(
+                roomId,
+                "GameTimeout",
+                playerSymbol: timedOutPlayerSymbol,
+                isValid: true,
+                result: $"Winner: {result.WinnerSymbol}",
+                message: $"Người chơi {timedOutPlayerSymbol} hết thời gian");
+
+            OnRoomTimeout?.Invoke(roomId, result);
 
             return result;
         }
 
         public MoveResult? LeaveRoom(string roomId, string playerId)
         {
-            if (!_rooms.TryGetValue(roomId, out var session))
+            if (string.IsNullOrWhiteSpace(roomId))
             {
-                WriteGameEvent(roomId, "InvalidLeave", playerId,
-                    isValid: false, message: "Phòng không tồn tại");
+                WriteGameEvent(
+                    roomId,
+                    "InvalidLeave",
+                    playerId,
+                    isValid: false,
+                    message: "roomId không hợp lệ");
+
+                return new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.InvalidRequest,
+                    ErrorMessage = "roomId không hợp lệ"
+                };
+            }
+
+            if (string.IsNullOrWhiteSpace(playerId))
+            {
+                WriteGameEvent(
+                    roomId,
+                    "InvalidLeave",
+                    playerId,
+                    isValid: false,
+                    message: "playerId không hợp lệ");
+
+                return new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.InvalidRequest,
+                    ErrorMessage = "playerId không hợp lệ"
+                };
+            }
+
+            var room = GetRoom(roomId);
+
+            if (room == null)
+            {
+                WriteGameEvent(
+                    roomId,
+                    "InvalidLeave",
+                    playerId,
+                    isValid: false,
+                    message: "Phòng không tồn tại");
+
+                return new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.RoomNotFound,
+                    ErrorMessage = "Phòng không tồn tại"
+                };
+            }
+
+            // Nếu khán giả rời phòng
+            if (room.IsSpectator(playerId))
+            {
+                room.RemoveSpectator(playerId);
+
+                Console.WriteLine(
+                    $"[RoomManager] Spectator {playerId} left room {roomId}");
+
+                WriteGameEvent(
+                    roomId,
+                    "SpectatorLeft",
+                    playerId,
+                    isValid: true,
+                    message: "Khán giả đã rời phòng");
+
                 return null;
             }
 
-            if (!session.IsPlayer(playerId))
+            if (!room.IsPlayer(playerId))
             {
-                WriteGameEvent(roomId, "InvalidLeave", playerId,
-                    isValid: false, message: "Người gửi không phải người chơi");
-                return null;
+                WriteGameEvent(
+                    roomId,
+                    "InvalidLeave",
+                    playerId,
+                    isValid: false,
+                    message: "Người chơi không thuộc phòng này");
+
+                return new MoveResult
+                {
+                    IsValid = false,
+                    ErrorCode = ErrorCode.PlayerNotInRoom,
+                    ErrorMessage = "Người chơi không thuộc phòng này"
+                };
             }
 
-            // Người còn lại được tính là người thắng
-            int leavingSymbol = session.GetPlayerSymbol(playerId);
+            // Dừng timer khi người chơi chính rời phòng
+            room.Session.StopTimer();
+
+            int leavingSymbol = room.GetPlayerSymbol(playerId);
+
+            // Người chơi còn lại được tính là người thắng
             int winnerSymbol = leavingSymbol == 1 ? 2 : 1;
 
-            // DEV 5: Ghi log người chơi rời phòng.
-            WriteGameEvent(roomId, "PlayerLeft", playerId,
+            // GAME EVENT LOG
+            WriteGameEvent(
+                roomId,
+                "PlayerLeft",
+                playerId,
                 playerSymbol: leavingSymbol,
                 isValid: true,
                 result: $"Winner: {winnerSymbol}",
@@ -137,24 +386,133 @@ namespace CaroServer.Managers
 
         public void RemoveRoom(string roomId)
         {
-            _rooms.TryRemove(roomId, out _);
-            Console.WriteLine($"[RoomManager] Phòng {roomId} đã bị xóa");
+            if (string.IsNullOrWhiteSpace(roomId))
+            {
+                Console.WriteLine(
+                    "[RoomManager] RemoveRoom: roomId trống, bỏ qua");
 
-            // DEV 5: Ghi log xóa phòng.
-            WriteGameEvent(roomId, "RoomRemoved",
-                message: "Phòng đã bị xóa khỏi RoomManager");
+                WriteGameEvent(
+                    roomId,
+                    "InvalidRoomRemove",
+                    isValid: false,
+                    message: "roomId trống");
+
+                return;
+            }
+
+            if (_rooms.TryRemove(roomId, out var room))
+            {
+                room.Session.Dispose();
+
+                Console.WriteLine(
+                    $"[RoomManager] Room {roomId} removed");
+
+                // GAME EVENT LOG
+                WriteGameEvent(
+                    roomId,
+                    "RoomRemoved",
+                    isValid: true,
+                    message: "Phòng đã bị xóa khỏi RoomManager");
+            }
+        }
+
+        // Tìm Room theo ID
+        public Room? GetRoom(string roomId)
+        {
+            _rooms.TryGetValue(roomId, out var room);
+            return room;
         }
 
         public GameSession? GetSession(string roomId)
         {
-            _rooms.TryGetValue(roomId, out var session);
-            return session;
+            return GetRoom(roomId)?.Session;
+        }
+
+        // Hỗ trợ thêm/xóa khán giả qua RoomManager
+        public bool AddSpectator(string roomId, string spectatorId)
+        {
+            var room = GetRoom(roomId);
+
+            if (room == null)
+            {
+                WriteGameEvent(
+                    roomId,
+                    "InvalidSpectatorJoin",
+                    spectatorId,
+                    isValid: false,
+                    message: "Phòng không tồn tại");
+
+                return false;
+            }
+
+            bool added = room.AddSpectator(spectatorId);
+
+            WriteGameEvent(
+                roomId,
+                added ? "SpectatorJoined" : "InvalidSpectatorJoin",
+                spectatorId,
+                isValid: added,
+                message: added
+                    ? "Khán giả đã tham gia phòng"
+                    : "Không thể thêm khán giả");
+
+            return added;
+        }
+
+        public bool RemoveSpectator(string roomId, string spectatorId)
+        {
+            var room = GetRoom(roomId);
+
+            if (room == null)
+            {
+                return false;
+            }
+
+            bool removed = room.RemoveSpectator(spectatorId);
+
+            if (removed)
+            {
+                WriteGameEvent(
+                    roomId,
+                    "SpectatorLeft",
+                    spectatorId,
+                    isValid: true,
+                    message: "Khán giả đã rời phòng");
+            }
+
+            return removed;
+        }
+
+        // Kích hoạt sự kiện hết giờ của phòng
+        public void TriggerRoomTimeout(
+            string roomId,
+            MoveResult moveResult)
+        {
+            OnRoomTimeout?.Invoke(roomId, moveResult);
         }
 
         public int GetActiveRoomCount()
         {
             return _rooms.Count;
         }
+
+        private void StartTurnTimer(
+            GameSession session,
+            int playerSymbol,
+            int turnNumber)
+        {
+            session.Timer.StartTurn(
+                turnNumber,
+                GameConstants.TurnTimeoutSeconds,
+                _ =>
+                {
+                    HandleTimeout(session.RoomId, playerSymbol);
+                });
+        }
+
+        // ============================================================
+        // GAME EVENT LOG
+        // ============================================================
 
         private static readonly object _logLock = new();
 
@@ -197,13 +555,16 @@ namespace CaroServer.Managers
 
                 lock (_logLock)
                 {
-                    File.AppendAllText(_logFile, json + Environment.NewLine);
+                    File.AppendAllText(
+                        _logFile,
+                        json + Environment.NewLine);
                 }
             }
             catch (Exception ex)
             {
                 // Logging lỗi không được làm ảnh hưởng đến game.
-                Console.WriteLine($"[GameEventLog] Không thể ghi log: {ex.Message}");
+                Console.WriteLine(
+                    $"[GameEventLog] Không thể ghi log: {ex.Message}");
             }
         }
     }
