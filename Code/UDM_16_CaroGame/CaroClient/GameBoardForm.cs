@@ -90,6 +90,7 @@ namespace CaroClient
             btnSurrender.Left = pnlPlayer2.Left;
             btnOfferDraw.Left = pnlPlayer2.Left;
             btnNewGame.Left = pnlPlayer2.Left;
+            btnNewGame.Enabled = false;
 
             lblTime.Left = pnlPlayer2.Left; // Chữ "TIME:"
             lblTimeCount.Left = lblTime.Right + 5; // Thời gian "00:00"
@@ -382,9 +383,8 @@ namespace CaroClient
 
             if (result == DialogResult.Yes)
             {
-                var msg = new NetworkMessage(MessageType.GameOverEvent, null);
-                await _networkClient.SendMessageAsync(msg);
-                // Chờ server gửi lại GameOverEvent xác nhận → HandleGameOver xử lý
+                MessageBox.Show("Đã ghi nhận đầu hàng. Ván cờ sẽ được đóng lại.", "Đầu hàng", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                this.Close();
             }
         }
 
