@@ -187,6 +187,9 @@ namespace CaroServer.Core
                 case MessageType.MakeMoveRequest:
                     await HandleMakeMoveAsync(senderSession, message);
                     break;
+                case MessageType.JoinSpectatorRequest:
+                    await HandleJoinSpectatorAsync(senderSession, message);
+                    break;
                 case MessageType.MatchHistoryRequest:
                     await HandleMatchHistoryAsync(senderSession, message);
                     break;
@@ -359,7 +362,122 @@ namespace CaroServer.Core
                 }
             }
         }
+        private async Task HandleJoinSpectatorAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+          var jsonElement = (JsonElement)message.Payload!;
+          var request = jsonElement.Deserialize<JoinSpectatorRequest>(JsonOptions);
 
+          if (request == null || string.IsNullOrWhiteSpace(request.RoomId))
+         {
+            var invalidResponse = new JoinSpectatorResponse
+            {
+                Success = false,
+                ErrorMessage = "RoomId không hợp lệ",
+                Snapshot = null
+            };
+
+            var invalidMessage = new NetworkMessage(
+                MessageType.JoinSpectatorResponse,
+                invalidResponse,
+                message.RequestId);
+
+            await senderSession.SendMessageAsync(invalidMessage);
+            return;
+         }
+
+          var room = _roomManager.GetRoom(request.RoomId);
+
+          if (room == null)
+          {
+              var notFoundResponse = new JoinSpectatorResponse
+              {
+                  Success = false,
+                  ErrorMessage = "Phòng không tồn tại",
+                  Snapshot = null
+              };
+
+              var notFoundMessage = new NetworkMessage(
+                  MessageType.JoinSpectatorResponse,
+                  notFoundResponse,
+                  message.RequestId);
+
+             await senderSession.SendMessageAsync(notFoundMessage);
+             return;
+         }
+
+    // Người chơi chính không thể tham gia cùng phòng với tư cách khán giả
+         if (room.IsPlayer(senderSession.PlayerId))
+         {
+             var playerResponse = new JoinSpectatorResponse
+             {
+                 Success = false,
+                 ErrorMessage = "Bạn đang là người chơi trong phòng này",
+                 Snapshot = null
+            };
+
+             var playerMessage = new NetworkMessage(
+                 MessageType.JoinSpectatorResponse,
+                 playerResponse,
+                 message.RequestId);
+
+            await senderSession.SendMessageAsync(playerMessage);
+            return;
+        }
+
+         bool added = _roomManager.AddSpectator(
+              request.RoomId,
+              senderSession.PlayerId);
+
+         if (!added)
+         {
+             var failedResponse = new JoinSpectatorResponse
+             {
+                  Success = false,
+                  ErrorMessage = "Không thể tham gia phòng với tư cách khán giả",
+                  Snapshot = null
+            };
+
+             var failedMessage = new NetworkMessage(
+                 MessageType.JoinSpectatorResponse,
+                 failedResponse,
+                 message.RequestId);
+
+            await senderSession.SendMessageAsync(failedMessage);
+            return;
+         }
+
+    // Đánh dấu session đang ở trong phòng để xử lý khi disconnect
+         senderSession.CurrentRoomId = request.RoomId;
+
+             var snapshot = new SpectatorStateSnapshotDto
+             {
+                 Room = new RoomDto
+                 {
+                     RoomId = room.RoomId,
+                     PlayerX = room.PlayerXId,
+                     PlayerO = room.PlayerOId,
+                     SpectatorCount = room.SpectatorCount
+                 },
+                 Session = room.Session.ToDto()
+             };
+
+             var response = new JoinSpectatorResponse
+             {
+                Success = true,
+                ErrorMessage = null,
+                Snapshot = snapshot
+             };
+
+             var responseMessage = new NetworkMessage(
+                 MessageType.JoinSpectatorResponse,
+                 response,
+                 message.RequestId);
+
+            await senderSession.SendMessageAsync(responseMessage);
+
+            Console.WriteLine(
+                $"[Spectator] {senderSession.PlayerId} joined room {request.RoomId}");
+        }
         private async Task HandleMatchHistoryAsync(PlayerSession senderSession, NetworkMessage message)
         {
             var jsonElement = (JsonElement)message.Payload!;
