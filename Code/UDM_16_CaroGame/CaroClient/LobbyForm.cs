@@ -31,7 +31,6 @@ namespace CaroClient
             BtnCreateRoom.Paint += Button_Paint;
             BtnRefresh.Paint += Button_Paint;
             BtnLogout.Paint += Button_Paint;
-            BtnMatchHistory.Paint += Button_Paint;
 
             // Đăng ký sự kiện nhận danh sách người chơi từ Server
             CaroClient.Network.NetworkClient.Instance.OnPlayerListReceived += OnPlayerListReceivedHandler;
@@ -168,12 +167,6 @@ namespace CaroClient
                 CaroClient.Network.NetworkClient.Instance.Disconnect();
                 this.Close();
             }
-        }
-
-        private void BtnMatchHistory_Click(object sender, EventArgs e)
-        {
-            var historyForm = new MatchHistoryForm(PlayerName);
-            historyForm.ShowDialog();
         }
     }
 }
