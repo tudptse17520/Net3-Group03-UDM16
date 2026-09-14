@@ -73,7 +73,22 @@ namespace CaroClient
             LstPlayers.ItemHeight = 17;
             LstPlayers.Location = new Point(30, 120);
             LstPlayers.Name = "LstPlayers";
-            LstPlayers.Size = new Size(200, 240);
+            LstPlayers.Size = new Size(200, 195);
+
+            // BtnChallenge
+            BtnChallenge = new Button();
+            BtnChallenge.BackColor = ColorTranslator.FromHtml("#2E6F40");
+            BtnChallenge.Cursor = Cursors.Hand;
+            BtnChallenge.FlatAppearance.BorderSize = 0;
+            BtnChallenge.FlatStyle = FlatStyle.Flat;
+            BtnChallenge.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            BtnChallenge.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
+            BtnChallenge.Location = new Point(30, 325);
+            BtnChallenge.Name = "BtnChallenge";
+            BtnChallenge.Size = new Size(200, 35);
+            BtnChallenge.Text = "THÁCH ĐẤU";
+            BtnChallenge.UseVisualStyleBackColor = false;
+            BtnChallenge.Click += BtnChallenge_Click;
 
             // LblRoomList
             LblRoomList.AutoSize = true;
@@ -180,6 +195,7 @@ namespace CaroClient
             Controls.Add(LblWelcome);
             Controls.Add(LblPlayers);
             Controls.Add(LstPlayers);
+            Controls.Add(BtnChallenge);
             Controls.Add(LblRoomList);
             Controls.Add(LstRooms);
             Controls.Add(LblRoomCode);
@@ -203,6 +219,7 @@ namespace CaroClient
         private Label LblWelcome;
         private Label LblPlayers;
         private ListBox LstPlayers;
+        private Button BtnChallenge;
         private Label LblRoomList;
         private ListBox LstRooms;
         private Label LblRoomCode;

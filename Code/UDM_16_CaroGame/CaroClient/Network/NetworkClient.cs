@@ -30,6 +30,8 @@ namespace CaroClient.Network
         // Events để UI lắng nghe
         public event Action<bool, string>? OnConnectResult;
         public event Action<List<string>>? OnPlayerListReceived;
+        public event Action<ChallengeRequest>? OnChallengeReceived;
+        public event Action<ChallengeResponse>? OnChallengeResponseReceived;
         public event Action? OnDisconnected;
 
         private NetworkClient() { }
@@ -73,6 +75,20 @@ namespace CaroClient.Network
         {
             CurrentNickname = nickname;
             var message = new NetworkMessage(MessageType.LoginRequest, nickname);
+            await SendMessageAsync(message);
+        }
+
+        // Gửi yêu cầu thách đấu người chơi khác
+        public async Task SendChallengeRequestAsync(string targetPlayerId)
+        {
+            var message = new NetworkMessage(MessageType.ChallengeRequest, new ChallengeRequest { TargetPlayerId = targetPlayerId });
+            await SendMessageAsync(message);
+        }
+
+        // Gửi phản hồi đồng ý hoặc từ chối thách đấu
+        public async Task SendChallengeResponseAsync(string challengerId, bool isAccepted)
+        {
+            var message = new NetworkMessage(MessageType.ChallengeResponse, new ChallengeResponse { ChallengerId = challengerId, IsAccepted = isAccepted });
             await SendMessageAsync(message);
         }
 
@@ -135,6 +151,28 @@ namespace CaroClient.Network
 
                 case MessageType.PlayerListResponse:
                     ParseAndNotifyPlayerList(message);
+                    break;
+
+                case MessageType.ChallengeRequest:
+                    if (message.Payload is JsonElement challengeReqElement)
+                    {
+                        var req = challengeReqElement.Deserialize<ChallengeRequest>(JsonOptions);
+                        if (req != null)
+                        {
+                            OnChallengeReceived?.Invoke(req);
+                        }
+                    }
+                    break;
+
+                case MessageType.ChallengeResponse:
+                    if (message.Payload is JsonElement challengeRespElement)
+                    {
+                        var resp = challengeRespElement.Deserialize<ChallengeResponse>(JsonOptions);
+                        if (resp != null)
+                        {
+                            OnChallengeResponseReceived?.Invoke(resp);
+                        }
+                    }
                     break;
 
                 default:
