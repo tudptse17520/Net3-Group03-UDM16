@@ -11,6 +11,7 @@ namespace CaroShared.Enums
         Pong,
 
         // 2. Sảnh chờ (Lobby)
+        PlayerListRequest,
         PlayerListResponse,
 
         // 3. Thách đấu
@@ -29,5 +30,11 @@ namespace CaroShared.Enums
 
         // Mở rộng sau:
         // ReconnectRequest, vân vân...
+        // 5. Lịch sử đấu
+        MatchHistoryRequest,
+        MatchHistoryResponse,
+
+        // 6. Xử lý lỗi
+        ErrorResponse,
     }
 }
