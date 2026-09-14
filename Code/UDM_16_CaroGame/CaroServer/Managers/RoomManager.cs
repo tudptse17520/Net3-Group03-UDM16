@@ -32,41 +32,42 @@ namespace CaroServer.Managers
         {
             if (!_rooms.TryGetValue(roomId, out var session))
             {
-                var result = new MoveResult
+                var invalidResult = new MoveResult
                 {
                     IsValid = false,
                     ErrorMessage = "Phòng không tồn tại",
-                    X = x, Y = y
+                    X = x,
+                    Y = y
                 };
 
                 // DEV 5: Ghi log nước đi không hợp lệ.
                 WriteGameEvent(roomId, "InvalidMove", playerId, x, y,
-                    isValid: false, message: result.ErrorMessage);
+                    isValid: false, message: invalidResult.ErrorMessage);
 
-                return result;
+                return invalidResult;
             }
 
             // Khán giả không được phép thực hiện nước đi
             if (!session.IsPlayer(playerId))
             {
-                var result = new MoveResult
+                var invalidResult = new MoveResult
                 {
                     IsValid = false,
                     ErrorMessage = "Bạn là khán giả, không được đánh cờ",
-                    X = x, Y = y
+                    X = x,
+                    Y = y
                 };
 
                 // DEV 5: Ghi log spectator cố thực hiện nước đi.
                 WriteGameEvent(roomId, "InvalidMove", playerId, x, y,
-                    isValid: false, message: result.ErrorMessage);
+                    isValid: false, message: invalidResult.ErrorMessage);
 
-                return result;
+                return invalidResult;
             }
 
             int playerSymbol = session.GetPlayerSymbol(playerId);
             MoveResult result = session.Engine.MakeMove(x, y, playerSymbol);
 
-           
             if (result.IsValid)
             {
                 WriteGameEvent(roomId, "MoveMade", playerId, x, y, playerSymbol,
@@ -154,8 +155,6 @@ namespace CaroServer.Managers
         {
             return _rooms.Count;
         }
-
-        
 
         private static readonly object _logLock = new();
 
