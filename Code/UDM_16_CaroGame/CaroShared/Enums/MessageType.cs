@@ -11,6 +11,7 @@ namespace CaroShared.Enums
         Pong,
 
         // 2. Sảnh chờ (Lobby)
+        PlayerListRequest,
         PlayerListResponse,
 
         // 3. Thách đấu
@@ -23,8 +24,17 @@ namespace CaroShared.Enums
         GameStateUpdate, // Nếu cần thiết để update trạng thái toàn ván
         GameOverEvent,
 
+        // 5. Khán giả (Spectator)
+        JoinSpectatorRequest,
+        JoinSpectatorResponse,
+
         // Mở rộng sau:
-        // JoinSpectatorRequest,
         // ReconnectRequest, vân vân...
+        // 5. Lịch sử đấu
+        MatchHistoryRequest,
+        MatchHistoryResponse,
+
+        // 6. Xử lý lỗi
+        ErrorResponse,
     }
 }

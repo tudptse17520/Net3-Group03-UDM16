@@ -24,6 +24,9 @@ namespace CaroClient
         private int _moveCountP1;
         private int _moveCountP2;
 
+        // ── Spectator ─────────────────────────────────────────────────────
+        private bool _isSpectator = false;
+
         private static int[][] CreateJaggedBoard()
         {
             var b = new int[BoardSize][];
@@ -42,6 +45,9 @@ namespace CaroClient
         {
             InitializeComponent();
             InitBoard();
+
+            // Đăng ký sự kiện Resize để căn giữa cụm chơi
+            this.Resize += GameBoardForm_Resize;
         }
 
         // ── Constructor gameplay ───────────────────────────────
@@ -67,33 +73,72 @@ namespace CaroClient
 
             // Cập nhật indicator lượt đi ban đầu
             UpdateTurnIndicator();
+            
+            // Tắt nút new game ban đầu
+            btnNewGame.Enabled = false;
         }
 
-        // ── Khởi tạo bàn cờ bằng 2 vòng lặp ─────────────────────────────
+        // ── Constructor Spectator ─────────────────────────────────────────
+        /// <summary>
+        /// Mở form ở chế độ Khán giả: chỉ xem, không đánh được.
+        /// </summary>
+        public GameBoardForm(SpectatorStateSnapshotDto snapshot) : this()
+        {
+            _isSpectator = true;
+
+            // 1. Load tên người chơi
+            lblPlayer1Name.Text = snapshot.Room?.PlayerX ?? "Player X";
+            lblPlayer2Name.Text = snapshot.Room?.PlayerO ?? "Player O";
+
+            // 2. Load trạng thái bàn cờ hiện tại
+            if (snapshot.Session?.Board != null)
+                UpdateBoard(snapshot.Session.Board);
+
+            // 3. Cập nhật UI cho chế độ Spectator
+            ApplySpectatorUI();
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  ApplySpectatorUI — thiết lập giao diện "chỉ xem"
+        // ══════════════════════════════════════════════════════════════════
+        private void ApplySpectatorUI()
+        {
+            // Đổi tiêu đề
+            this.Text = "CARO ONLINE — Chế độ Khán giả 👁️";
+            lblAppTitle.Text = "👁️ KHÁN GIẢ";
+
+            // Đổi nút Đầu hàng → Thoát phòng
+            btnSurrender.Text = "THOÁT PHÒNG";
+
+            // Lock các nút không liên quan
+            btnOfferDraw.Enabled = false;
+            btnNewGame.Enabled = false;
+
+            // Cập nhật indicator lượt
+            pnlPlayer1Turn.Text = "Đang xem...";
+            pnlPlayer1Turn.ForeColor = Color.CornflowerBlue;
+            pnlPlayer2Turn.Text = "Đang xem...";
+            pnlPlayer2Turn.ForeColor = Color.CornflowerBlue;
+
+            // Đổi cursor các ô cờ → không phải bàn tay
+            for (int row = 0; row < BoardSize; row++)
+            {
+                for (int col = 0; col < BoardSize; col++)
+                {
+                    _cells[row, col].Cursor = Cursors.Default;
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  InitBoard — khởi tạo bàn cờ bằng 2 vòng lặp
+        // ══════════════════════════════════════════════════════════════════
         private void InitBoard()
         {
             // Tự động fit panel theo đúng kích thước bàn cờ (15 × 44 = 660px)
             int boardPixelSize = BoardSize * CellSize;
             pnlBoardContainer.Size = new Size(boardPixelSize, boardPixelSize);
 
-            // Căn giữa bàn cờ trong Form
-            pnlBoardContainer.Left = (this.ClientSize.Width - pnlBoardContainer.Width) / 2;
-            
-            // Căn chỉnh panel Player 1 bên trái bàn cờ
-            pnlPlayer1.Top = pnlBoardContainer.Top;
-            pnlPlayer1.Left = pnlBoardContainer.Left - pnlPlayer1.Width - 20;
-
-            // Căn chỉnh panel Player 2 và các nút bên phải bàn cờ
-            pnlPlayer2.Top = pnlBoardContainer.Top;
-            pnlPlayer2.Left = pnlBoardContainer.Right + 20;
-
-            btnSurrender.Left = pnlPlayer2.Left;
-            btnOfferDraw.Left = pnlPlayer2.Left;
-            btnNewGame.Left = pnlPlayer2.Left;
-            btnNewGame.Enabled = false;
-
-            lblTime.Left = pnlPlayer2.Left; // Chữ "TIME:"
-            lblTimeCount.Left = lblTime.Right + 5; // Thời gian "00:00"
 
             pnlBoardContainer.Controls.Clear();
             pnlBoardContainer.BackColor = Color.FromArgb(40, 40, 40);
@@ -126,6 +171,39 @@ namespace CaroClient
                     _cells[row, col] = btn;
                 }
             }
+
+            // Căn giữa lần đầu
+            CenterLayout();
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  CenterLayout — căn giữa cụm chơi trong Form
+        // ══════════════════════════════════════════════════════════════════
+        private void CenterLayout()
+        {
+            // Căn giữa bàn cờ trong Form
+            pnlBoardContainer.Left = (this.ClientSize.Width - pnlBoardContainer.Width) / 2;
+
+            // Căn chỉnh panel Player 1 bên trái bàn cờ
+            pnlPlayer1.Top = pnlBoardContainer.Top;
+            pnlPlayer1.Left = pnlBoardContainer.Left - pnlPlayer1.Width - 20;
+
+            // Căn chỉnh panel Player 2 và các nút bên phải bàn cờ
+            pnlPlayer2.Top = pnlBoardContainer.Top;
+            pnlPlayer2.Left = pnlBoardContainer.Right + 20;
+
+            btnSurrender.Left = pnlPlayer2.Left;
+            btnOfferDraw.Left = pnlPlayer2.Left;
+            btnNewGame.Left = pnlPlayer2.Left;
+
+            lblTime.Left = pnlPlayer2.Left;
+            lblTimeCount.Left = lblTime.Right + 5;
+        }
+
+        // ── Sự kiện Resize ────────────────────────────────────────────────
+        private void GameBoardForm_Resize(object? sender, EventArgs e)
+        {
+            CenterLayout();
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -136,6 +214,7 @@ namespace CaroClient
             if (sender is not Button btn) return;
             var (row, col) = ((int, int))btn.Tag!;
 
+            if (_isSpectator) return;
             if (_isGameOver) return;
             if (!_isMyTurn) return;
 
@@ -370,9 +449,16 @@ namespace CaroClient
 
         private void label1_Click(object sender, EventArgs e) { }
 
-        // btnSurrender
+        // btnSurrender / Thoát phòng (Spectator)
         private async void button1_Click(object sender, EventArgs e)
         {
+            // Nếu là Spectator, nút này là "Thoát phòng"
+            if (_isSpectator)
+            {
+                this.Close();
+                return;
+            }
+
             if (_isGameOver || _networkClient == null) return;
 
             var result = MessageBox.Show(
@@ -386,6 +472,7 @@ namespace CaroClient
                 MessageBox.Show("Đã ghi nhận đầu hàng. Ván cờ sẽ được đóng lại.", "Đầu hàng", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 this.Close();
             }
+
         }
 
         // btnNewGame
