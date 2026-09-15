@@ -31,12 +31,21 @@ namespace CaroClient
             BtnCreateRoom.Paint += Button_Paint;
             BtnRefresh.Paint += Button_Paint;
             BtnLogout.Paint += Button_Paint;
+            BtnChallenge.Paint += Button_Paint;
 
-            // Đăng ký sự kiện nhận danh sách người chơi từ Server
+            // Đăng ký sự kiện từ NetworkClient
             CaroClient.Network.NetworkClient.Instance.OnPlayerListReceived += OnPlayerListReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnChallengeReceived += OnChallengeReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnChallengeResponseReceived += OnChallengeResponseReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnSpectatorJoined += HandleSpectatorJoined;
             this.FormClosing += LobbyForm_FormClosing;
 
-            // TODO: Sẽ request danh sách khi Server hỗ trợ PlayerListRequest
+            // Context Menu cho LstRooms (Khán giả xem trận)
+            var contextMenu = new ContextMenuStrip();
+            var tsmSpectate = new ToolStripMenuItem("Vào Xem Trận");
+            tsmSpectate.Click += TsmSpectate_Click;
+            contextMenu.Items.Add(tsmSpectate);
+            LstRooms.ContextMenuStrip = contextMenu;
         }
 
         private void OnPlayerListReceivedHandler(System.Collections.Generic.List<string> playerNames)
@@ -54,7 +63,7 @@ namespace CaroClient
 
             foreach (var name in playerNames)
             {
-                if (string.Equals(name.Trim(), myNick, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(name.Trim(), myNick, StringComparison.Ordinal))
                 {
                     LstPlayers.Items.Add($"🟢 {name} (Bạn)");
                 }
@@ -67,9 +76,96 @@ namespace CaroClient
             LblPlayers.Text = $"Người chơi online ({playerNames.Count}):";
         }
 
+        // Xử lý khi nhận được lời mời thách đấu từ người chơi khác
+        private async void OnChallengeReceivedHandler(CaroShared.Contracts.ChallengeRequest request)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => OnChallengeReceivedHandler(request)));
+                return;
+            }
+
+            DialogResult result = MessageBox.Show(
+                $"Người chơi [{request.TargetPlayerId}] muốn THÁCH ĐẤU với bạn!\n\nBạn có chấp nhận không?",
+                "Lời Mời Thách Đấu",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question
+            );
+
+            bool isAccepted = (result == DialogResult.Yes);
+            await CaroClient.Network.NetworkClient.Instance.SendChallengeResponseAsync(request.TargetPlayerId, isAccepted);
+
+            if (isAccepted)
+            {
+                OpenGameBoard();
+            }
+        }
+
+        // Xử lý khi nhận phản hồi thách đấu từ đối thủ
+        private void OnChallengeResponseReceivedHandler(CaroShared.Contracts.ChallengeResponse response)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => OnChallengeResponseReceivedHandler(response)));
+                return;
+            }
+
+            if (response.IsAccepted)
+            {
+                MessageBox.Show($"Đối thủ [{response.ChallengerId}] đã CHẤP NHẬN lời mời!\nĐang vào bàn cờ...", "Thách đấu thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                OpenGameBoard();
+            }
+            else
+            {
+                MessageBox.Show($"Đối thủ [{response.ChallengerId}] đã TỪ CHỐI lời mời thách đấu.", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        // Chuyển sang màn hình Bàn cờ (GameBoardForm)
+        private void OpenGameBoard()
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(OpenGameBoard));
+                return;
+            }
+
+            GameBoardForm gameForm = new GameBoardForm();
+            this.Hide();
+            gameForm.ShowDialog();
+            this.Show();
+        }
+
+        private async void BtnChallenge_Click(object sender, EventArgs e)
+        {
+            if (LstPlayers.SelectedItem == null)
+            {
+                MessageBox.Show("Vui lòng chọn một người chơi trong danh sách để thách đấu!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string selectedItem = LstPlayers.SelectedItem.ToString() ?? string.Empty;
+            string targetNick = selectedItem.Replace("🟢 ", "").Replace(" (Bạn)", "").Replace("👤 ", "").Trim();
+            string myNick = !string.IsNullOrWhiteSpace(PlayerName) 
+                ? PlayerName.Trim() 
+                : CaroClient.Network.NetworkClient.Instance.CurrentNickname.Trim();
+
+            if (string.Equals(targetNick, myNick, StringComparison.Ordinal))
+            {
+                MessageBox.Show("Bạn không thể tự thách đấu chính mình!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            await CaroClient.Network.NetworkClient.Instance.SendChallengeRequestAsync(targetNick);
+            MessageBox.Show($"Đã gửi lời mời thách đấu tới [{targetNick}]. Vui lòng chờ phản hồi...", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
         private void LobbyForm_FormClosing(object? sender, FormClosingEventArgs e)
         {
             CaroClient.Network.NetworkClient.Instance.OnPlayerListReceived -= OnPlayerListReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnChallengeReceived -= OnChallengeReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnChallengeResponseReceived -= OnChallengeResponseReceivedHandler;
+            CaroClient.Network.NetworkClient.Instance.OnSpectatorJoined -= HandleSpectatorJoined;
             CaroClient.Network.NetworkClient.Instance.Disconnect();
         }
 
@@ -136,27 +232,44 @@ namespace CaroClient
 
             if (string.IsNullOrEmpty(roomCode))
             {
-                MessageBox.Show("Vui lòng chọn hoặc nhập mã phòng!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Vui lòng chọn một phòng trong danh sách hoặc nhập mã phòng!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            MessageBox.Show($"Đang tham gia phòng: {roomCode}", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show($"Tham gia phòng [{roomCode}] thành công!\nĐang chuyển vào bàn cờ...", "Thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            OpenGameBoard();
         }
 
         private void BtnCreateRoom_Click(object sender, EventArgs e)
         {
-            MessageBox.Show("Đang tạo phòng mới...", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            string roomCode = TxtRoomCode.Text.Trim();
+
+            if (string.IsNullOrEmpty(roomCode))
+            {
+                int newRoomNum = 101 + LstRooms.Items.Count;
+                roomCode = $"Phòng {newRoomNum} (1/2)";
+            }
+
+            // Thêm phòng mới vào danh sách sảnh chờ
+            if (!LstRooms.Items.Contains(roomCode))
+            {
+                LstRooms.Items.Add(roomCode);
+            }
+
+            MessageBox.Show($"Đã tạo thành công phòng [{roomCode}]!\nĐang vào phòng chờ đối thủ...", "Tạo phòng mới", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            OpenGameBoard();
         }
 
         private async void BtnRefresh_Click(object sender, EventArgs e)
         {
-            // TODO: Sẽ request danh sách khi Server hỗ trợ PlayerListRequest
+            // Gửi yêu cầu cập nhật danh sách người chơi từ Server
+            if (CaroClient.Network.NetworkClient.Instance.IsConnected)
+            {
+                var msg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.PlayerListRequest, null);
+                await CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
+            }
 
-            // Cập nhật danh sách phòng mẫu
-            LstRooms.Items.Clear();
-            LstRooms.Items.Add("Phòng 101 (1/2)");
-            LstRooms.Items.Add("Phòng 102 (Đang chơi)");
-            LstRooms.Items.Add("Phòng 103 (1/2)");
+            MessageBox.Show("Đã làm mới danh sách sảnh chờ!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void BtnLogout_Click(object sender, EventArgs e)
@@ -166,6 +279,48 @@ namespace CaroClient
             {
                 CaroClient.Network.NetworkClient.Instance.Disconnect();
                 this.Close();
+            }
+        }
+
+        private void TsmSpectate_Click(object? sender, EventArgs e)
+        {
+            string selectedRoom = LstRooms.SelectedItem?.ToString() ?? string.Empty;
+            if (string.IsNullOrEmpty(selectedRoom))
+            {
+                MessageBox.Show("Vui lòng chọn một phòng trong danh sách để xem!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string roomId = selectedRoom;
+            var match = System.Text.RegularExpressions.Regex.Match(selectedRoom, @"\d+");
+            if (match.Success)
+            {
+                roomId = match.Value;
+            }
+
+            var req = new CaroShared.Contracts.JoinSpectatorRequest { RoomId = roomId };
+            var msg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.JoinSpectatorRequest, req);
+            _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
+        }
+
+        private void HandleSpectatorJoined(CaroShared.Contracts.JoinSpectatorResponse response)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => HandleSpectatorJoined(response)));
+                return;
+            }
+
+            if (response.Success && response.Snapshot != null)
+            {
+                var spectatorForm = new GameBoardForm(response.Snapshot);
+                this.Hide();
+                spectatorForm.ShowDialog();
+                this.Show();
+            }
+            else
+            {
+                MessageBox.Show($"Lỗi vào xem: {response.ErrorMessage}", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
