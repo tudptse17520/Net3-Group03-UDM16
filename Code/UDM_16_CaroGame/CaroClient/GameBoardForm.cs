@@ -56,6 +56,11 @@ namespace CaroClient
 
             // 3. Cập nhật UI cho chế độ Spectator
             ApplySpectatorUI();
+
+            // 4. Lắng nghe cập nhật từ Server
+            CaroClient.Network.NetworkClient.Instance.OnMoveMade += HandleMoveMade;
+            CaroClient.Network.NetworkClient.Instance.OnGameOver += HandleGameOver;
+            this.FormClosed += GameBoardForm_FormClosed;
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -277,5 +282,49 @@ namespace CaroClient
         private void label3_Click(object sender, EventArgs e) { }
         private void label3_Click_1(object sender, EventArgs e) { }
         private void label9_Click(object sender, EventArgs e) { }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  Xử lý sự kiện từ Server
+        // ══════════════════════════════════════════════════════════════════
+        private void HandleMoveMade(MoveMadeEventDto ev)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => HandleMoveMade(ev)));
+                return;
+            }
+
+            int symbol = 0;
+            if (ev.PlayerId == lblPlayer1Name.Text) symbol = 1;
+            else if (ev.PlayerId == lblPlayer2Name.Text) symbol = 2;
+
+            if (symbol != 0 && ev.X >= 0 && ev.X < BoardSize && ev.Y >= 0 && ev.Y < BoardSize)
+            {
+                _board[ev.X][ev.Y] = symbol;
+                UpdateBoard(_board);
+            }
+
+            if (ev.WinnerSymbol != 0)
+            {
+                string winnerName = (ev.WinnerSymbol == 1) ? lblPlayer1Name.Text : lblPlayer2Name.Text;
+                MessageBox.Show($"Trận đấu kết thúc! {winnerName} chiến thắng!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        private void HandleGameOver(string reason)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => HandleGameOver(reason)));
+                return;
+            }
+            MessageBox.Show($"Trận đấu đã kết thúc: {reason}", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void GameBoardForm_FormClosed(object? sender, FormClosedEventArgs e)
+        {
+            CaroClient.Network.NetworkClient.Instance.OnMoveMade -= HandleMoveMade;
+            CaroClient.Network.NetworkClient.Instance.OnGameOver -= HandleGameOver;
+        }
     }
 }

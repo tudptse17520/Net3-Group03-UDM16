@@ -32,6 +32,11 @@ namespace CaroClient.Network
         public event Action<List<string>>? OnPlayerListReceived;
         public event Action? OnDisconnected;
 
+        // Events cho Gameplay & Spectator
+        public event Action<JoinSpectatorResponse>? OnSpectatorJoined;
+        public event Action<MoveMadeEventDto>? OnMoveMade;
+        public event Action<string>? OnGameOver;
+
         private NetworkClient() { }
 
         private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
@@ -135,6 +140,39 @@ namespace CaroClient.Network
 
                 case MessageType.PlayerListResponse:
                     ParseAndNotifyPlayerList(message);
+                    break;
+
+                case MessageType.JoinSpectatorResponse:
+                    if (message.Payload is JsonElement specResponseElement)
+                    {
+                        var specResponse = specResponseElement.Deserialize<JoinSpectatorResponse>(JsonOptions);
+                        if (specResponse != null)
+                        {
+                            OnSpectatorJoined?.Invoke(specResponse);
+                        }
+                    }
+                    break;
+
+                case MessageType.MoveMadeEvent:
+                    if (message.Payload is JsonElement moveElement)
+                    {
+                        var moveEvent = moveElement.Deserialize<MoveMadeEventDto>(JsonOptions);
+                        if (moveEvent != null)
+                        {
+                            OnMoveMade?.Invoke(moveEvent);
+                        }
+                    }
+                    break;
+
+                case MessageType.GameOverEvent:
+                    if (message.Payload is JsonElement gameOverElement)
+                    {
+                        string? reason = gameOverElement.GetString();
+                        if (!string.IsNullOrEmpty(reason))
+                        {
+                            OnGameOver?.Invoke(reason);
+                        }
+                    }
                     break;
 
                 default:
