@@ -172,6 +172,51 @@ namespace CaroServer.Game
             }
         }
 
+        // Người chơi mất kết nối quá thời gian cho phép sẽ bị xử thua.
+        public MoveResult ForfeitPlayer(int playerSymbol, string reason)
+        {
+            lock (_lockObj)
+            {
+                if (Status != "Playing")
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Trận đấu đã kết thúc",
+                        Player = playerSymbol,
+                        IsGameOver = true,
+                        WinnerSymbol = WinnerSymbol
+                    };
+                }
+
+                if (playerSymbol != 1 && playerSymbol != 2)
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Người chơi không hợp lệ",
+                        Player = playerSymbol
+                    };
+                }
+
+                Status = "Finished";
+                WinnerSymbol = playerSymbol == 1 ? 2 : 1;
+
+                OnGameOver?.Invoke(WinnerSymbol, false);
+
+                return new MoveResult
+                {
+                    IsValid = true,
+                    Player = playerSymbol,
+                    IsGameOver = true,
+                    WinnerSymbol = WinnerSymbol,
+                    IsDraw = false,
+                    ErrorMessage = reason,
+                    NextTurn = 0
+                };
+            }
+        }
+
         public MoveResult HandleTimeout(int timedOutPlayer)
         {
             lock (_lockObj)

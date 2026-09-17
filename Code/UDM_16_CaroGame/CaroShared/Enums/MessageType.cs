@@ -5,6 +5,8 @@ namespace CaroShared.Enums
         // 1. Connection & Session
         LoginRequest,
         LoginResponse,
+        ReconnectRequest,
+        ReconnectResponse,
         
         // Heartbeat - Sprint 2 - Dev 5
         Ping,
@@ -29,7 +31,6 @@ namespace CaroShared.Enums
         JoinSpectatorResponse,
 
         // Mở rộng sau:
-        // ReconnectRequest, vân vân...
         // 5. Lịch sử đấu
         MatchHistoryRequest,
         MatchHistoryResponse,
