@@ -196,9 +196,9 @@ namespace CaroClient
         /// </remarks>
         private void SendMove(int row, int col)
         {
-            throw new NotImplementedException(
-                $"[NetworkDev] Chưa triển khai gửi nước đi: row={row}, col={col}. " +
-                "Hãy kết nối NetworkClient và gửi MakeMoveRequest tới server.");
+            var request = new CaroShared.Contracts.MakeMoveRequest { X = col, Y = row };
+            var msg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.MakeMoveRequest, request);
+            _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
         }
 
         // ── Cập nhật UI từ dữ liệu server gửi về ─────────────────────────
