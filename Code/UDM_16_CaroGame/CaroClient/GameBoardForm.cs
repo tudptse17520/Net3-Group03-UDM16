@@ -255,9 +255,7 @@ namespace CaroClient
                 return;
             }
 
-            throw new NotImplementedException(
-                "[NetworkDev] Chưa triển khai đầu hàng. " +
-                "Hãy gửi SurrenderRequest tới server và xử lý GameOverEvent.");
+            MessageBox.Show("Tính năng Đầu Hàng đang chờ Backend (Dev 1) cập nhật SurrenderRequest. Vui lòng thử lại sau!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // btnNewGame
@@ -265,9 +263,7 @@ namespace CaroClient
         //                    Server xác nhận → gọi ResetBoard() ở phía client.
         private void button3_Click(object sender, EventArgs e)
         {
-            throw new NotImplementedException(
-                "[NetworkDev] Chưa triển khai yêu cầu ván mới. " +
-                "Hãy gửi NewGameRequest và gọi ResetBoard() sau khi server xác nhận.");
+            MessageBox.Show("Tính năng Ván Mới đang chờ Backend (Dev 1) cập nhật NewGameRequest. Vui lòng thử lại sau!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void pictureBox1_Click(object sender, EventArgs e) { }
