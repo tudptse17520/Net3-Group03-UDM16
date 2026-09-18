@@ -15,6 +15,7 @@ namespace CaroServer.Models
 
         // Sử dụng ConcurrentDictionary làm Thread-safe Set để lưu trữ khán giả
         private readonly ConcurrentDictionary<string, byte> _spectators = new();
+        private readonly ConcurrentDictionary<string, byte> _disconnectedPlayers = new();
 
         public Room(string roomId, string playerXId, string playerOId)
         {
@@ -51,6 +52,25 @@ namespace CaroServer.Models
         }
 
         public int SpectatorCount => _spectators.Count;
+
+        // Đánh dấu người chơi tạm mất kết nối nhưng vẫn giữ chỗ trong trận.
+        public bool MarkPlayerDisconnected(string playerId)
+        {
+            if (!IsPlayer(playerId)) return false;
+            return _disconnectedPlayers.TryAdd(playerId, 0);
+        }
+
+        public bool MarkPlayerReconnected(string playerId)
+        {
+            return _disconnectedPlayers.TryRemove(playerId, out _);
+        }
+
+        public bool IsPlayerDisconnected(string playerId)
+        {
+            return _disconnectedPlayers.ContainsKey(playerId);
+        }
+
+        public bool HasDisconnectedPlayers => !_disconnectedPlayers.IsEmpty;
 
         // Kiểm tra xem playerId có phải người chơi chính hay không
         public bool IsPlayer(string playerId)

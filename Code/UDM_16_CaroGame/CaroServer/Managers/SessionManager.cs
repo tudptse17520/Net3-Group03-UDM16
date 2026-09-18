@@ -4,28 +4,51 @@ using CaroServer.Models;
 
 namespace CaroServer.Managers
 {
-    // Quản lý các session đang kết nối
+    // Quản lý session đang kết nối và các session tạm giữ để Reconnect
     public class SessionManager
     {
-        // Lưu trữ session theo PlayerId
         private readonly ConcurrentDictionary<string, PlayerSession> _sessions = new();
+        private readonly ConcurrentDictionary<string, PendingReconnectSession> _pendingReconnects = new();
 
         public void AddSession(PlayerSession session)
         {
-            _sessions.TryAdd(session.PlayerId, session);
+            _sessions[session.PlayerId] = session;
             Console.WriteLine($"[SessionManager] Added session: {session.PlayerId}. Total: {_sessions.Count}");
         }
 
-        // dispose = true khi Client thật sự ngắt kết nối
-        // dispose = false khi chỉ đổi ID (Login) → giữ socket sống
-        public void RemoveSession(string playerId, bool dispose = true)
+        // Chỉ xóa đúng instance được chỉ định để tránh một connection cũ
+        // vô tình xóa connection mới sau khi Reconnect.
+        public bool RemoveSession(string playerId, PlayerSession session, bool dispose = true)
         {
-            if (_sessions.TryRemove(playerId, out PlayerSession? session))
+            if (!_sessions.TryGetValue(playerId, out var current) || !ReferenceEquals(current, session))
+            {
+                return false;
+            }
+
+            if (((ICollection<KeyValuePair<string, PlayerSession>>)_sessions).Remove(new KeyValuePair<string, PlayerSession>(playerId, session)))
             {
                 if (dispose)
                 {
                     session.Dispose();
                 }
+
+                Console.WriteLine($"[SessionManager] Removed session: {playerId} (dispose={dispose}). Total: {_sessions.Count}");
+                return true;
+            }
+
+            return false;
+        }
+
+        // Compatibility overload cho các luồng cũ.
+        public void RemoveSession(string playerId, bool dispose = true)
+        {
+            if (_sessions.TryRemove(playerId, out var session))
+            {
+                if (dispose)
+                {
+                    session.Dispose();
+                }
+
                 Console.WriteLine($"[SessionManager] Removed session: {playerId} (dispose={dispose}). Total: {_sessions.Count}");
             }
         }
@@ -40,5 +63,84 @@ namespace CaroServer.Managers
         {
             return _sessions.Values;
         }
+
+        // Lưu thông tin phiên sau khi Client mất kết nối trong thời gian ReconnectWindowSeconds.
+        public PendingReconnectSession HoldForReconnect(PlayerSession session)
+        {
+            var pending = new PendingReconnectSession(
+                session.PlayerId,
+                session.SessionToken,
+                session.CurrentRoomId,
+                DateTime.UtcNow);
+
+            _pendingReconnects[pending.SessionToken] = pending;
+            return pending;
+        }
+
+        // Lấy và đồng thời xóa pending session để token chỉ được sử dụng một lần.
+        public bool TryTakeReconnectSession(
+            string sessionToken,
+            TimeSpan reconnectWindow,
+            out PendingReconnectSession pending)
+        {
+            pending = null!;
+
+            if (string.IsNullOrWhiteSpace(sessionToken) ||
+                !_pendingReconnects.TryGetValue(sessionToken, out var existing))
+            {
+                return false;
+            }
+
+            if (DateTime.UtcNow - existing.DisconnectedAtUtc > reconnectWindow)
+            {
+                _pendingReconnects.TryRemove(sessionToken, out _);
+                return false;
+            }
+
+            if (((ICollection<KeyValuePair<string, PendingReconnectSession>>)_pendingReconnects).Remove(new KeyValuePair<string, PendingReconnectSession>(sessionToken, existing)))
+            {
+                pending = existing;
+                return true;
+            }
+
+            return false;
+        }
+
+        // Dùng bởi tác vụ hết hạn của Server để lấy pending session bất kể
+        // độ trễ của scheduler, sau đó tự xử lý việc xử thua.
+        public bool TryTakePendingReconnectSession(
+            string sessionToken,
+            out PendingReconnectSession pending)
+        {
+            pending = null!;
+
+            if (string.IsNullOrWhiteSpace(sessionToken) ||
+                !_pendingReconnects.TryGetValue(sessionToken, out var existing))
+            {
+                return false;
+            }
+
+            if (((ICollection<KeyValuePair<string, PendingReconnectSession>>)_pendingReconnects).Remove(new KeyValuePair<string, PendingReconnectSession>(sessionToken, existing)))
+            {
+                pending = existing;
+                return true;
+            }
+
+            return false;
+        }
+
+        public void RemovePendingReconnect(string sessionToken)
+        {
+            if (!string.IsNullOrWhiteSpace(sessionToken))
+            {
+                _pendingReconnects.TryRemove(sessionToken, out _);
+            }
+        }
     }
+
+    public sealed record PendingReconnectSession(
+        string PlayerId,
+        string SessionToken,
+        string? RoomId,
+        DateTime DisconnectedAtUtc);
 }
