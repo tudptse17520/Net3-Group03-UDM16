@@ -26,9 +26,12 @@ namespace CaroClient.Network
 
         public bool IsConnected => _isConnected && _client != null && _client.Connected;
         public string CurrentNickname { get; private set; } = string.Empty;
+        public string SessionToken { get; private set; } = string.Empty;
 
         // Events để UI lắng nghe
         public event Action<bool, string>? OnConnectResult;
+        public event Action<bool, ReconnectResponse>? OnReconnectResult;
+        public event Action<GameStateDto>? OnGameStateRestored;
         public event Action<List<string>>? OnPlayerListReceived;
         public event Action<List<MatchDto>>? OnMatchHistoryReceived;
         public event Action? OnDisconnected;
@@ -75,6 +78,30 @@ namespace CaroClient.Network
             CurrentNickname = nickname;
             var message = new NetworkMessage(MessageType.LoginRequest, nickname);
             await SendMessageAsync(message);
+        }
+
+        // Kết nối lại bằng SessionToken đã nhận sau Login.
+        public async Task<bool> ReconnectAsync(string ip, int port)
+        {
+            if (string.IsNullOrWhiteSpace(SessionToken))
+            {
+                OnReconnectResult?.Invoke(false, new ReconnectResponse
+                {
+                    Success = false,
+                    Message = "Chưa có SessionToken để reconnect."
+                });
+                return false;
+            }
+
+            bool connected = await ConnectAsync(ip, port);
+            if (!connected)
+            {
+                return false;
+            }
+
+            var request = new ReconnectRequest { SessionToken = SessionToken };
+            await SendMessageAsync(new NetworkMessage(MessageType.ReconnectRequest, request));
+            return true;
         }
 
         // Gửi NetworkMessage lên Server
@@ -130,8 +157,17 @@ namespace CaroClient.Network
             switch (message.Type)
             {
                 case MessageType.LoginResponse:
+                    ParseLoginResponse(message);
                     OnConnectResult?.Invoke(true, "Login successful!");
                     ParseAndNotifyPlayerList(message);
+                    break;
+
+                case MessageType.ReconnectResponse:
+                    ParseReconnectResponse(message);
+                    break;
+
+                case MessageType.Ping:
+                    _ = SendMessageAsync(HeartbeatProtocol.CreatePong(message));
                     break;
 
                 case MessageType.PlayerListResponse:
@@ -145,6 +181,33 @@ namespace CaroClient.Network
                 default:
                     Console.WriteLine($"[NetworkClient] Unhandled message type: {message.Type}");
                     break;
+            }
+        }
+
+        private void ParseLoginResponse(NetworkMessage message)
+        {
+            if (message.Payload is JsonElement element)
+            {
+                var response = element.Deserialize<PlayerListResponse>(JsonOptions);
+                if (!string.IsNullOrWhiteSpace(response?.SessionToken))
+                {
+                    SessionToken = response.SessionToken;
+                }
+            }
+        }
+
+        private void ParseReconnectResponse(NetworkMessage message)
+        {
+            if (message.Payload is not JsonElement element) return;
+
+            var response = element.Deserialize<ReconnectResponse>(JsonOptions);
+            if (response == null) return;
+
+            OnReconnectResult?.Invoke(response.Success, response);
+
+            if (response.Success && response.GameState != null)
+            {
+                OnGameStateRestored?.Invoke(response.GameState);
             }
         }
 
