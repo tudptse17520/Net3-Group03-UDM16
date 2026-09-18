@@ -22,19 +22,19 @@ namespace CaroServer.Managers
         {
             if (string.IsNullOrWhiteSpace(playerXId))
             {
-                Console.WriteLine("[RoomManager] CreateRoom thất bại: playerXId trống");
+                Console.WriteLine("[RoomManager] CreateRoom failed: playerXId is empty");
                 return string.Empty;
             }
 
             if (string.IsNullOrWhiteSpace(playerOId))
             {
-                Console.WriteLine("[RoomManager] CreateRoom thất bại: playerOId trống");
+                Console.WriteLine("[RoomManager] CreateRoom failed: playerOId is empty");
                 return string.Empty;
             }
 
             if (string.Equals(playerXId, playerOId, StringComparison.OrdinalIgnoreCase))
             {
-                Console.WriteLine("[RoomManager] CreateRoom thất bại: không thể tự đấu với chính mình");
+                Console.WriteLine("[RoomManager] CreateRoom failed: cannot play against self");
                 return string.Empty;
             }
 
@@ -389,7 +389,7 @@ namespace CaroServer.Managers
             if (string.IsNullOrWhiteSpace(roomId))
             {
                 Console.WriteLine(
-                    "[RoomManager] RemoveRoom: roomId trống, bỏ qua");
+                    "[RoomManager] RemoveRoom: roomId is empty, skipped");
 
                 WriteGameEvent(
                     roomId,
@@ -574,9 +574,9 @@ namespace CaroServer.Managers
             }
             catch (Exception ex)
             {
-                // Logging lỗi không được làm ảnh hưởng đến game.
+                // Logging error must not affect game.
                 Console.WriteLine(
-                    $"[GameEventLog] Không thể ghi log: {ex.Message}");
+                    $"[GameEventLog] Failed to write log: {ex.Message}");
             }
         }
     }

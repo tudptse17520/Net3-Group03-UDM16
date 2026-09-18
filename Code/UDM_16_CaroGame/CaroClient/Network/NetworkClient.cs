@@ -44,15 +44,15 @@ namespace CaroClient.Network
         public event Action<bool, ReconnectResponse>? OnReconnectResult;
         public event Action<GameStateDto>? OnGameStateRestored;
         public event Action<List<string>>? OnPlayerListReceived;
-
-        // ── Events: Gameplay (Bước 2 plan) ──
+        public event Action<ChallengeRequest>? OnChallengeReceived;
+        public event Action<ChallengeResponse>? OnChallengeResponseReceived;
+        public event Action<List<MatchDto>>? OnMatchHistoryReceived;
+        public event Action? OnDisconnected;
+        public event Action<JoinSpectatorResponse>? OnSpectatorJoined;
         public event Action<MoveMadeEventDto>? OnMoveMade;
         public event Action<NetworkMessage>? OnGameOver;
-
-        // ── Events: General ──
-        public event Action<NetworkMessage>? OnMessageReceived;   // catch-all
+        public event Action<NetworkMessage>? OnMessageReceived;
         public event Action<Exception>? OnError;
-        public event Action? OnDisconnected;
 
         private NetworkClient() { }
 
@@ -98,6 +98,21 @@ namespace CaroClient.Network
         {
             CurrentNickname = nickname;
             var message = new NetworkMessage(MessageType.LoginRequest, nickname);
+            await SendMessageAsync(message);
+        }
+
+        // ────────────────────────────────────────────
+        //  Challenge
+        // ────────────────────────────────────────────
+        public async Task SendChallengeRequestAsync(string targetPlayerId)
+        {
+            var message = new NetworkMessage(MessageType.ChallengeRequest, new ChallengeRequest { TargetPlayerId = targetPlayerId });
+            await SendMessageAsync(message);
+        }
+
+        public async Task SendChallengeResponseAsync(string challengerId, bool isAccepted)
+        {
+            var message = new NetworkMessage(MessageType.ChallengeResponse, new ChallengeResponse { ChallengerId = challengerId, IsAccepted = isAccepted });
             await SendMessageAsync(message);
         }
 
@@ -216,6 +231,43 @@ namespace CaroClient.Network
                 case MessageType.PlayerListResponse:
                     ParseAndNotifyPlayerList(msg);
                     break;
+                    
+                case MessageType.JoinSpectatorResponse:
+                    if (msg.Payload is JsonElement specRespElement)
+                    {
+                        var specResp = specRespElement.Deserialize<JoinSpectatorResponse>(JsonOptions);
+                        if (specResp != null)
+                        {
+                            OnSpectatorJoined?.Invoke(specResp);
+                        }
+                    }
+                    break;
+
+                case MessageType.MatchHistoryResponse:
+                    ParseAndNotifyMatchHistory(msg);
+                    break;
+
+                case MessageType.ChallengeRequest:
+                    if (msg.Payload is JsonElement challengeReqElement)
+                    {
+                        var req = challengeReqElement.Deserialize<ChallengeRequest>(JsonOptions);
+                        if (req != null)
+                        {
+                            OnChallengeReceived?.Invoke(req);
+                        }
+                    }
+                    break;
+
+                case MessageType.ChallengeResponse:
+                    if (msg.Payload is JsonElement challengeRespElement)
+                    {
+                        var resp = challengeRespElement.Deserialize<ChallengeResponse>(JsonOptions);
+                        if (resp != null)
+                        {
+                            OnChallengeResponseReceived?.Invoke(resp);
+                        }
+                    }
+                    break;
 
                 // ── Gameplay ──
                 case MessageType.MoveMadeEvent:
@@ -229,6 +281,7 @@ namespace CaroClient.Network
 
                 // ── Catch-all ──
                 default:
+                    Console.WriteLine($"[NetworkClient] Unhandled message type: {msg.Type}");
                     OnMessageReceived?.Invoke(msg);
                     break;
             }
@@ -277,6 +330,19 @@ namespace CaroClient.Network
                 if (response != null && response.PlayerNames != null)
                 {
                     OnPlayerListReceived?.Invoke(response.PlayerNames);
+                }
+            }
+        }
+
+        // Parse Payload thành danh sách lịch sử đấu
+        private void ParseAndNotifyMatchHistory(NetworkMessage message)
+        {
+            if (message.Payload is JsonElement element)
+            {
+                var response = element.Deserialize<MatchHistoryResponse>(JsonOptions);
+                if (response != null && response.Matches != null)
+                {
+                    OnMatchHistoryReceived?.Invoke(response.Matches);
                 }
             }
         }

@@ -32,6 +32,7 @@ namespace CaroClient
             BtnCreateRoom = new Button();
             BtnRefresh = new Button();
             BtnLogout = new Button();
+            BtnMatchHistory = new Button();
             SuspendLayout();
 
             // LblTitle
@@ -73,7 +74,22 @@ namespace CaroClient
             LstPlayers.ItemHeight = 17;
             LstPlayers.Location = new Point(30, 120);
             LstPlayers.Name = "LstPlayers";
-            LstPlayers.Size = new Size(200, 240);
+            LstPlayers.Size = new Size(200, 195);
+
+            // BtnChallenge
+            BtnChallenge = new Button();
+            BtnChallenge.BackColor = ColorTranslator.FromHtml("#2E6F40");
+            BtnChallenge.Cursor = Cursors.Hand;
+            BtnChallenge.FlatAppearance.BorderSize = 0;
+            BtnChallenge.FlatStyle = FlatStyle.Flat;
+            BtnChallenge.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            BtnChallenge.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
+            BtnChallenge.Location = new Point(30, 325);
+            BtnChallenge.Name = "BtnChallenge";
+            BtnChallenge.Size = new Size(200, 35);
+            BtnChallenge.Text = "THÁCH ĐẤU";
+            BtnChallenge.UseVisualStyleBackColor = false;
+            BtnChallenge.Click += BtnChallenge_Click;
 
             // LblRoomList
             LblRoomList.AutoSize = true;
@@ -171,15 +187,30 @@ namespace CaroClient
             BtnLogout.UseVisualStyleBackColor = false;
             BtnLogout.Click += BtnLogout_Click;
 
+            // BtnMatchHistory
+            BtnMatchHistory.BackColor = ColorTranslator.FromHtml("#5C3A21");
+            BtnMatchHistory.Cursor = Cursors.Hand;
+            BtnMatchHistory.FlatAppearance.BorderSize = 0;
+            BtnMatchHistory.FlatStyle = FlatStyle.Flat;
+            BtnMatchHistory.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            BtnMatchHistory.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
+            BtnMatchHistory.Location = new Point(580, 355);
+            BtnMatchHistory.Name = "BtnMatchHistory";
+            BtnMatchHistory.Size = new Size(170, 35);
+            BtnMatchHistory.Text = "LỊCH SỬ ĐẤU";
+            BtnMatchHistory.UseVisualStyleBackColor = false;
+            BtnMatchHistory.Click += BtnMatchHistory_Click;
+
             // LobbyForm
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = ColorTranslator.FromHtml("#3B2314");
-            ClientSize = new Size(780, 390);
+            ClientSize = new Size(780, 410);
             Controls.Add(LblTitle);
             Controls.Add(LblWelcome);
             Controls.Add(LblPlayers);
             Controls.Add(LstPlayers);
+            Controls.Add(BtnChallenge);
             Controls.Add(LblRoomList);
             Controls.Add(LstRooms);
             Controls.Add(LblRoomCode);
@@ -188,6 +219,7 @@ namespace CaroClient
             Controls.Add(BtnCreateRoom);
             Controls.Add(BtnRefresh);
             Controls.Add(BtnLogout);
+            Controls.Add(BtnMatchHistory);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             Name = "LobbyForm";
@@ -203,6 +235,7 @@ namespace CaroClient
         private Label LblWelcome;
         private Label LblPlayers;
         private ListBox LstPlayers;
+        private Button BtnChallenge;
         private Label LblRoomList;
         private ListBox LstRooms;
         private Label LblRoomCode;
@@ -211,5 +244,6 @@ namespace CaroClient
         private Button BtnCreateRoom;
         private Button BtnRefresh;
         private Button BtnLogout;
+        private Button BtnMatchHistory;
     }
 }

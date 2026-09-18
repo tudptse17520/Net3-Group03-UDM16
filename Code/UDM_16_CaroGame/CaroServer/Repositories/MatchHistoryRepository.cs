@@ -23,11 +23,11 @@ namespace CaroServer.Repositories
             {
                 await _dbContext.MatchHistories.AddAsync(match);
                 await _dbContext.SaveChangesAsync();
-                Console.WriteLine($"[DB] Đã lưu trận đấu phòng {match.RoomId} vào CSDL.");
+                Console.WriteLine($"[DB] Match saved for room {match.RoomId}.");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DB Error] Lỗi khi lưu trận đấu: {ex.Message}");
+                Console.WriteLine($"[DB Error] Save match failed: {ex.Message}");
             }
         }
 
@@ -43,7 +43,7 @@ namespace CaroServer.Repositories
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DB Error] Lỗi khi truy vấn lịch sử đấu của {playerId}: {ex.Message}");
+                Console.WriteLine($"[DB Error] Query history failed for {playerId}: {ex.Message}");
                 return new List<MatchHistory>();
             }
         }

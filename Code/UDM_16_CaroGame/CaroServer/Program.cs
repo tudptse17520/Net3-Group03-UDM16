@@ -13,9 +13,19 @@ namespace CaroServer
         {
             Console.WriteLine("=== UDM_16 CARO SERVER ===");
             
-            // Khởi tạo Database
+            // Khởi tạo Database qua EF Core
             var dbContext = new CaroDbContext();
-            await dbContext.Database.EnsureCreatedAsync(); // Tự động tạo CSDL nếu chưa có
+            try
+            {
+                await dbContext.Database.EnsureCreatedAsync();
+                Console.WriteLine("[DB] Database connected.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB] Connection failed: {ex.Message}");
+                Console.WriteLine("[DB] Running without database persistence.");
+            }
+
             var matchRepo = new MatchHistoryRepository(dbContext);
 
             // Khởi tạo các manager và dịch vụ mạng
