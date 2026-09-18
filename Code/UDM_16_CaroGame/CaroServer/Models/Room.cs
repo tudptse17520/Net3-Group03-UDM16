@@ -11,10 +11,11 @@ namespace CaroServer.Models
         public string RoomId { get; }
         public string PlayerXId { get; }
         public string PlayerOId { get; }
-        public GameSession Session { get; }
+        public GameSession Session { get; private set; }
 
         // Sử dụng ConcurrentDictionary làm Thread-safe Set để lưu trữ khán giả
         private readonly ConcurrentDictionary<string, byte> _spectators = new();
+        private readonly ConcurrentDictionary<string, byte> _disconnectedPlayers = new();
 
         public Room(string roomId, string playerXId, string playerOId)
         {
@@ -22,6 +23,13 @@ namespace CaroServer.Models
             PlayerXId = playerXId;
             PlayerOId = playerOId;
             Session = new GameSession(roomId, playerXId, playerOId);
+        }
+
+        // Khởi động lại ván đấu mới trong cùng phòng (bàn cờ và timer mới)
+        public void ResetSession()
+        {
+            Session?.Dispose();
+            Session = new GameSession(RoomId, PlayerXId, PlayerOId);
         }
 
         // Thêm khán giả vào phòng
@@ -44,6 +52,25 @@ namespace CaroServer.Models
         }
 
         public int SpectatorCount => _spectators.Count;
+
+        // Đánh dấu người chơi tạm mất kết nối nhưng vẫn giữ chỗ trong trận.
+        public bool MarkPlayerDisconnected(string playerId)
+        {
+            if (!IsPlayer(playerId)) return false;
+            return _disconnectedPlayers.TryAdd(playerId, 0);
+        }
+
+        public bool MarkPlayerReconnected(string playerId)
+        {
+            return _disconnectedPlayers.TryRemove(playerId, out _);
+        }
+
+        public bool IsPlayerDisconnected(string playerId)
+        {
+            return _disconnectedPlayers.ContainsKey(playerId);
+        }
+
+        public bool HasDisconnectedPlayers => !_disconnectedPlayers.IsEmpty;
 
         // Kiểm tra xem playerId có phải người chơi chính hay không
         public bool IsPlayer(string playerId)

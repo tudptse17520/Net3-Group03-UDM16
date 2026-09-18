@@ -11,10 +11,9 @@ namespace CaroServer.Models
     // Đại diện cho một phiên kết nối của người chơi
     public class PlayerSession : IDisposable
     {
-        // ID của người chơi
         public string PlayerId { get; set; }
 
-        // Token dùng để xác thực khi Reconnect
+        // Token dùng để xác thực khi Reconnect.
         public string SessionToken { get; private set; }
 
         // Phòng đang chơi (null nếu ở sảnh chờ)
@@ -23,7 +22,6 @@ namespace CaroServer.Models
         public TcpClient Client { get; private set; }
         public NetworkStream Stream { get; private set; }
 
-        // Dùng chung cho Serialize
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNameCaseInsensitive = true,
@@ -32,16 +30,24 @@ namespace CaroServer.Models
 
         public PlayerSession(TcpClient client)
         {
-            Client = client;
+            Client = client ?? throw new ArgumentNullException(nameof(client));
             Stream = client.GetStream();
-            
-            // Khởi tạo ngẫu nhiên danh tính và Token khi mới kết nối
+
             string shortId = Guid.NewGuid().ToString("N").Substring(0, 6);
             PlayerId = $"Player_{shortId}";
-            SessionToken = Guid.NewGuid().ToString();
+            SessionToken = Guid.NewGuid().ToString("N");
         }
 
-        // Gửi tin nhắn qua luồng Stream
+        // Gắn socket mới cho session sau khi Reconnect thành công.
+        public void RestoreConnection(TcpClient client, string playerId, string sessionToken, string? roomId)
+        {
+            Client = client ?? throw new ArgumentNullException(nameof(client));
+            Stream = client.GetStream();
+            PlayerId = playerId;
+            SessionToken = sessionToken;
+            CurrentRoomId = roomId;
+        }
+
         public async Task SendMessageAsync(NetworkMessage message)
         {
             try
@@ -54,22 +60,16 @@ namespace CaroServer.Models
             catch (Exception ex)
             {
                 Console.WriteLine($"[PlayerSession] Error sending message to {PlayerId}: {ex.Message}");
+                throw;
             }
         }
 
-        // Đảm bảo đóng socket và giải phóng tài nguyên
         public void Dispose()
         {
-            if (Stream != null)
-            {
-                Stream.Close();
-                Stream.Dispose();
-            }
-            if (Client != null)
-            {
-                Client.Close();
-                Client.Dispose();
-            }
+            try { Stream?.Close(); } catch { }
+            try { Stream?.Dispose(); } catch { }
+            try { Client?.Close(); } catch { }
+            try { Client?.Dispose(); } catch { }
         }
     }
 }
