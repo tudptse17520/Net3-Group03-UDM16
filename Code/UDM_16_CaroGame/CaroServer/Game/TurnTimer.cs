@@ -3,6 +3,7 @@ using System.Threading;
 
 namespace CaroServer.Game
 {
+    // Bộ đếm giờ cho mỗi lượt đánh
     public class TurnTimer : IDisposable
     {
         private readonly object _lock = new();
@@ -22,6 +23,7 @@ namespace CaroServer.Game
             }
         }
 
+        // Lấy số giây còn lại của lượt hiện tại
         public int GetRemainingSeconds()
         {
             lock (_lock)
@@ -36,6 +38,7 @@ namespace CaroServer.Game
             }
         }
 
+        // Bắt đầu đếm giờ cho một lượt mới
         public void StartTurn(int turnId, int durationSeconds, Action<int> onTimeout)
         {
             if (durationSeconds <= 0)
@@ -71,6 +74,7 @@ namespace CaroServer.Game
             }
         }
 
+        // Dừng đếm giờ hiện tại
         public void Stop()
         {
             lock (_lock)
@@ -81,6 +85,7 @@ namespace CaroServer.Game
             }
         }
 
+        // Giải phóng bộ đếm giờ khi không còn sử dụng
         public void Dispose()
         {
             lock (_lock)

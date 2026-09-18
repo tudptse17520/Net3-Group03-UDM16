@@ -16,12 +16,17 @@ namespace CaroServer.Managers
             Console.WriteLine($"[SessionManager] Added session: {session.PlayerId}. Total: {_sessions.Count}");
         }
 
-        public void RemoveSession(string playerId)
+        // dispose = true khi Client thật sự ngắt kết nối
+        // dispose = false khi chỉ đổi ID (Login) → giữ socket sống
+        public void RemoveSession(string playerId, bool dispose = true)
         {
             if (_sessions.TryRemove(playerId, out PlayerSession? session))
             {
-                session.Dispose();
-                Console.WriteLine($"[SessionManager] Removed session: {playerId}. Total: {_sessions.Count}");
+                if (dispose)
+                {
+                    session.Dispose();
+                }
+                Console.WriteLine($"[SessionManager] Removed session: {playerId} (dispose={dispose}). Total: {_sessions.Count}");
             }
         }
 
@@ -29,6 +34,11 @@ namespace CaroServer.Managers
         {
             _sessions.TryGetValue(playerId, out var session);
             return session;
+        }
+
+        public IEnumerable<PlayerSession> GetAllSessions()
+        {
+            return _sessions.Values;
         }
     }
 }
