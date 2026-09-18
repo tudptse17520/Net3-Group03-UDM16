@@ -394,6 +394,7 @@ namespace CaroServer.Core
                 case MessageType.MakeMoveRequest:
                     await HandleMakeMoveAsync(senderSession, message);
                     break;
+
                 case MessageType.MatchHistoryRequest:
                     await HandleMatchHistoryAsync(senderSession, message);
                     break;
