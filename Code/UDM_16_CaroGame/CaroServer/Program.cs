@@ -17,13 +17,13 @@ namespace CaroServer
             var dbContext = new CaroDbContext();
             try
             {
-                await dbContext.Database.EnsureCreatedAsync(); // Tự động tạo CSDL nếu chưa có
-                Console.WriteLine("[DB] Kết nối và khởi tạo CSDL CaroGameDb thành công.");
+                await dbContext.Database.EnsureCreatedAsync();
+                Console.WriteLine("[DB] Database connected.");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DB Warning] Không thể kết nối SQL Server (SQLEXPRESS): {ex.Message}");
-                Console.WriteLine("[DB Warning] Server vẫn tiếp tục hoạt động (tính năng lưu lịch sử đấu tạm thời không khả dụng).");
+                Console.WriteLine($"[DB] Connection failed: {ex.Message}");
+                Console.WriteLine("[DB] Running without database persistence.");
             }
 
             var matchRepo = new MatchHistoryRepository(dbContext);
