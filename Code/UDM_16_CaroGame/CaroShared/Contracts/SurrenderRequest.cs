@@ -1,14 +1,12 @@
 namespace CaroShared.Contracts
 {
-    /// <summary>
-    /// Yêu cầu đầu hàng từ một người chơi trong trận đấu.
-    /// </summary>
+    // Yêu cầu đầu hàng từ một người chơi trong trận đấu
     public record SurrenderRequest
     {
-        /// <summary>Mã phòng đang diễn ra trận đấu.</summary>
+        // Mã phòng đang diễn ra trận đấu
         public string RoomId { get; init; } = string.Empty;
 
-        /// <summary>Nickname của người chơi chủ động đầu hàng.</summary>
+        // Nickname của người chơi chủ động đầu hàng
         public string PlayerId { get; init; } = string.Empty;
     }
 }

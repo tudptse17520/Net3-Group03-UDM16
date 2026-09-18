@@ -1,17 +1,15 @@
 namespace CaroShared.Contracts
 {
-    /// <summary>
-    /// Thông báo từ Server khi ván mới được khởi tạo thành công trong phòng.
-    /// </summary>
+    // Thông báo từ Server khi ván mới được khởi tạo thành công trong phòng
     public record NewGameEventDto
     {
-        /// <summary>Mã phòng đang chơi.</summary>
+        // Mã phòng đang chơi
         public string RoomId { get; init; } = string.Empty;
 
-        /// <summary>Ký hiệu người đi trước ở ván mới (1 = X, 2 = O).</summary>
+        // Ký hiệu người đi trước ở ván mới (1 = X, 2 = O)
         public int StartingTurn { get; init; } = 1;
 
-        /// <summary>Thông điệp thông báo.</summary>
+        // Thông điệp thông báo
         public string Message { get; init; } = "Ván đấu mới đã bắt đầu!";
     }
 }
