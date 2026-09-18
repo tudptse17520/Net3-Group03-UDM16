@@ -172,6 +172,10 @@ namespace CaroClient.Network
                 case MessageType.PlayerListResponse:
                     ParseAndNotifyPlayerList(msg);
                     break;
+                    
+                case MessageType.Ping:
+                    _ = SendMessageAsync(new NetworkMessage(MessageType.Pong, null));
+                    break;
 
                 // ── Gameplay ──
                 case MessageType.MoveMadeEvent:

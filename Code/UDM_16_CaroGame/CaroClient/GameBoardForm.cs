@@ -17,6 +17,7 @@ namespace CaroClient
         private int[][] _board = CreateJaggedBoard();
 
         // ── Gameplay state ─────────────────────────────────────
+        private string _roomId = string.Empty;
         private NetworkClient? _networkClient;
         private string _myPlayerId = string.Empty;
         private int _mySymbol;          // 1=X hoặc 2=O
@@ -564,8 +565,15 @@ namespace CaroClient
 
             if (result == DialogResult.Yes)
             {
-                MessageBox.Show("Đã ghi nhận đầu hàng. Ván cờ sẽ được đóng lại.", "Đầu hàng", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                this.Close();
+                var req = new CaroShared.Contracts.SurrenderRequest
+                {
+                    RoomId   = _roomId,
+                    PlayerId = _networkClient.CurrentNickname
+                };
+                var msg = new CaroShared.Protocol.NetworkMessage(
+                    CaroShared.Enums.MessageType.SurrenderRequest, req);
+                _ = _networkClient.SendMessageAsync(msg);
+                // Không close ngay — Server sẽ broadcast GameOverEvent để kết thúc ván
             }
 
         }
