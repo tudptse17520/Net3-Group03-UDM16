@@ -13,9 +13,19 @@ namespace CaroServer
         {
             Console.WriteLine("=== UDM_16 CARO SERVER ===");
             
-            // Khởi tạo Database
+            // Khởi tạo Database qua EF Core
             var dbContext = new CaroDbContext();
-            await dbContext.Database.EnsureCreatedAsync(); // Tự động tạo CSDL nếu chưa có
+            try
+            {
+                await dbContext.Database.EnsureCreatedAsync(); // Tự động tạo CSDL nếu chưa có
+                Console.WriteLine("[DB] Kết nối và khởi tạo CSDL CaroGameDb thành công.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB Warning] Không thể kết nối SQL Server (SQLEXPRESS): {ex.Message}");
+                Console.WriteLine("[DB Warning] Server vẫn tiếp tục hoạt động (tính năng lưu lịch sử đấu tạm thời không khả dụng).");
+            }
+
             var matchRepo = new MatchHistoryRepository(dbContext);
 
             // Khởi tạo các manager và dịch vụ mạng
