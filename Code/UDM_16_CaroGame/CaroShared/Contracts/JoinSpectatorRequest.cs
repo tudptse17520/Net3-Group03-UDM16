@@ -1,7 +1,9 @@
 namespace CaroShared.Contracts
 {
-    public class JoinSpectatorRequest
+    // Yêu cầu từ Client xin tham gia làm khán giả của một phòng chơi
+    public record JoinSpectatorRequest
     {
-        public string RoomId { get; set; } = string.Empty;
+        // Mã phòng muốn vào xem
+        public string RoomId { get; init; } = string.Empty;
     }
 }

@@ -5,6 +5,8 @@ namespace CaroShared.Enums
         // 1. Connection & Session
         LoginRequest,
         LoginResponse,
+        ReconnectRequest,
+        ReconnectResponse,
         
         // Heartbeat - Sprint 2 - Dev 5
         Ping,
@@ -23,13 +25,13 @@ namespace CaroShared.Enums
         MoveMadeEvent,
         GameStateUpdate, // Nếu cần thiết để update trạng thái toàn ván
         GameOverEvent,
+        SurrenderRequest,
+        NewGameRequest,
+        NewGameEvent,
 
-        // 5. Spectator
+        // 5. Khán giả (Spectator)
         JoinSpectatorRequest,
         JoinSpectatorResponse,
-
-        // Mở rộng sau:
-        // ReconnectRequest, vân vân...
 
         // 6. Lịch sử đấu
         MatchHistoryRequest,
