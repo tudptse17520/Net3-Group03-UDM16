@@ -33,10 +33,10 @@ namespace CaroClient.Network
         public event Action<bool, ReconnectResponse>? OnReconnectResult;
         public event Action<GameStateDto>? OnGameStateRestored;
         public event Action<List<string>>? OnPlayerListReceived;
+        public event Action<ChallengeRequest>? OnChallengeReceived;
+        public event Action<ChallengeResponse>? OnChallengeResponseReceived;
         public event Action<List<MatchDto>>? OnMatchHistoryReceived;
         public event Action? OnDisconnected;
-        public event Action<CaroShared.Contracts.ChallengeResponse>? OnChallengeResponse;
-        public event Action<CaroShared.Contracts.ChallengeRequest>? OnChallengeRequest;
         public event Action<CaroShared.Contracts.JoinSpectatorResponse>? OnSpectatorJoined;
         public event Action<CaroShared.Contracts.MoveMadeEventDto>? OnMoveMade;
         public event Action<CaroShared.Protocol.NetworkMessage>? OnGameOver;
@@ -83,6 +83,20 @@ namespace CaroClient.Network
         {
             CurrentNickname = nickname;
             var message = new NetworkMessage(MessageType.LoginRequest, nickname);
+            await SendMessageAsync(message);
+        }
+
+        // Gửi yêu cầu thách đấu người chơi khác
+        public async Task SendChallengeRequestAsync(string targetPlayerId)
+        {
+            var message = new NetworkMessage(MessageType.ChallengeRequest, new ChallengeRequest { TargetPlayerId = targetPlayerId });
+            await SendMessageAsync(message);
+        }
+
+        // Gửi phản hồi đồng ý hoặc từ chối thách đấu
+        public async Task SendChallengeResponseAsync(string challengerId, bool isAccepted)
+        {
+            var message = new NetworkMessage(MessageType.ChallengeResponse, new ChallengeResponse { ChallengerId = challengerId, IsAccepted = isAccepted });
             await SendMessageAsync(message);
         }
 
@@ -180,17 +194,6 @@ namespace CaroClient.Network
                     ParseAndNotifyPlayerList(message);
                     break;
                     
-                case MessageType.ChallengeRequest:
-                    if (message.Payload is JsonElement reqElement)
-                    {
-                        var chalReq = reqElement.Deserialize<CaroShared.Contracts.ChallengeRequest>(JsonOptions);
-                        if (chalReq != null)
-                        {
-                            OnChallengeRequest?.Invoke(chalReq);
-                        }
-                    }
-                    break;
-                    
                 case MessageType.JoinSpectatorResponse:
                     if (message.Payload is JsonElement specRespElement)
                     {
@@ -198,17 +201,6 @@ namespace CaroClient.Network
                         if (specResp != null)
                         {
                             OnSpectatorJoined?.Invoke(specResp);
-                        }
-                    }
-                    break;
-
-                case MessageType.ChallengeResponse:
-                    if (message.Payload is JsonElement respElement)
-                    {
-                        var chalResp = respElement.Deserialize<CaroShared.Contracts.ChallengeResponse>(JsonOptions);
-                        if (chalResp != null)
-                        {
-                            OnChallengeResponse?.Invoke(chalResp);
                         }
                     }
                     break;
@@ -230,6 +222,28 @@ namespace CaroClient.Network
 
                 case MessageType.MatchHistoryResponse:
                     ParseAndNotifyMatchHistory(message);
+                    break;
+
+                case MessageType.ChallengeRequest:
+                    if (message.Payload is JsonElement challengeReqElement)
+                    {
+                        var req = challengeReqElement.Deserialize<ChallengeRequest>(JsonOptions);
+                        if (req != null)
+                        {
+                            OnChallengeReceived?.Invoke(req);
+                        }
+                    }
+                    break;
+
+                case MessageType.ChallengeResponse:
+                    if (message.Payload is JsonElement challengeRespElement)
+                    {
+                        var resp = challengeRespElement.Deserialize<ChallengeResponse>(JsonOptions);
+                        if (resp != null)
+                        {
+                            OnChallengeResponseReceived?.Invoke(resp);
+                        }
+                    }
                     break;
 
                 default:

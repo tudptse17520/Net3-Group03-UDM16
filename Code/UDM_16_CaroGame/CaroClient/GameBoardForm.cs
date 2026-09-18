@@ -70,6 +70,8 @@ namespace CaroClient
             }
         }
 
+
+
         // ── Constructor Spectator ─────────────────────────────────────────
         /// <summary>
         /// Mở form ở chế độ Khán giả: chỉ xem, không đánh được.
