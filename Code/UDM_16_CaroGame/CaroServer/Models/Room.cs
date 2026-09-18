@@ -11,7 +11,7 @@ namespace CaroServer.Models
         public string RoomId { get; }
         public string PlayerXId { get; }
         public string PlayerOId { get; }
-        public GameSession Session { get; }
+        public GameSession Session { get; private set; }
 
         // Sử dụng ConcurrentDictionary làm Thread-safe Set để lưu trữ khán giả
         private readonly ConcurrentDictionary<string, byte> _spectators = new();
@@ -23,6 +23,13 @@ namespace CaroServer.Models
             PlayerXId = playerXId;
             PlayerOId = playerOId;
             Session = new GameSession(roomId, playerXId, playerOId);
+        }
+
+        // Khởi động lại ván đấu mới trong cùng phòng (bàn cờ và timer mới)
+        public void ResetSession()
+        {
+            Session?.Dispose();
+            Session = new GameSession(RoomId, PlayerXId, PlayerOId);
         }
 
         // Thêm khán giả vào phòng
