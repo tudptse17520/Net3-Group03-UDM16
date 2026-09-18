@@ -1,4 +1,5 @@
 using CaroClient.Network;
+using CaroShared.Constants;
 using CaroShared.Contracts;
 using CaroShared.Enums;
 using CaroShared.Protocol;
@@ -26,6 +27,10 @@ namespace CaroClient
 
         // ── Spectator ─────────────────────────────────────────────────────
         private bool _isSpectator = false;
+
+        // ── Quản lý đồng hồ đếm ngược ──────────────────────────────────────
+        private System.Windows.Forms.Timer? _countdownTimer;
+        private int _remainingSeconds = 0;
 
         private static int[][] CreateJaggedBoard()
         {
@@ -96,6 +101,12 @@ namespace CaroClient
 
             // 3. Cập nhật UI cho chế độ Spectator
             ApplySpectatorUI();
+
+            // 4. Bắt đầu timer từ thông tin thời gian snapshot của Server
+            if (snapshot.Session != null && snapshot.Session.RemainingTimeSeconds > 0)
+            {
+                StartTurnTimer(snapshot.Session.RemainingTimeSeconds);
+            }
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -434,6 +445,7 @@ namespace CaroClient
         // ── Reset bàn cờ về trạng thái ban đầu ───────────────────────────
         public void ResetBoard()
         {
+            StopTurnTimer();
             _board = CreateJaggedBoard();
             for (int row = 0; row < BoardSize; row++)
                 for (int col = 0; col < BoardSize; col++)
@@ -441,6 +453,89 @@ namespace CaroClient
                     _cells[row, col].Text      = "";
                     _cells[row, col].BackColor = Color.FromArgb(245, 222, 179);
                 }
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  Quản lý đồng hồ đếm ngược thời gian (Client Timer UI)
+        // ══════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Bắt đầu đếm ngược lượt mới với số giây quy định.
+        /// </summary>
+        /// <param name="seconds">Số giây đếm ngược (Mặc định: TurnTimeoutSeconds = 30s)</param>
+        public void StartTurnTimer(int seconds = GameConstants.TurnTimeoutSeconds)
+        {
+            StopTurnTimer();
+
+            _remainingSeconds = seconds > 0 ? seconds : GameConstants.TurnTimeoutSeconds;
+            UpdateTimerUI();
+
+            _countdownTimer = new System.Windows.Forms.Timer
+            {
+                Interval = 1000 // 1 giây
+            };
+            _countdownTimer.Tick += CountdownTimer_Tick;
+            _countdownTimer.Start();
+        }
+
+        /// <summary>
+        /// Dừng đếm ngược thời gian.
+        /// </summary>
+        public void StopTurnTimer()
+        {
+            if (_countdownTimer != null)
+            {
+                _countdownTimer.Stop();
+                _countdownTimer.Tick -= CountdownTimer_Tick;
+                _countdownTimer.Dispose();
+                _countdownTimer = null;
+            }
+        }
+
+        private void CountdownTimer_Tick(object? sender, EventArgs e)
+        {
+            if (_remainingSeconds > 0)
+            {
+                _remainingSeconds--;
+                UpdateTimerUI();
+            }
+            else
+            {
+                // Khi đồng hồ về 00:00: Dừng timer client, giữ 00:00 và chờ Server xử lý Timeout
+                StopTurnTimer();
+            }
+        }
+
+        /// <summary>
+        /// Cập nhật hiển thị label thời gian đếm ngược.
+        /// </summary>
+        private void UpdateTimerUI()
+        {
+            if (lblTimeCount.InvokeRequired)
+            {
+                lblTimeCount.Invoke(new Action(UpdateTimerUI));
+                return;
+            }
+
+            int minutes = _remainingSeconds / 60;
+            int secs = _remainingSeconds % 60;
+            lblTimeCount.Text = $"{minutes:D2}:{secs:D2}";
+
+            // Đổi màu đỏ cảnh báo khi còn <= 5 giây
+            if (_remainingSeconds <= 5)
+            {
+                lblTimeCount.ForeColor = Color.Red;
+            }
+            else
+            {
+                lblTimeCount.ForeColor = Color.DarkOrange;
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            StopTurnTimer();
+            base.OnFormClosing(e);
         }
 
         // ════════════════════════════════════════════════════════════════════
