@@ -1,5 +1,7 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
+using Microsoft.EntityFrameworkCore;
 using CaroServer.Core;
 using CaroServer.Managers;
 using CaroServer.Data;
@@ -13,8 +15,19 @@ namespace CaroServer
         {
             Console.WriteLine("=== UDM_16 CARO SERVER ===");
             
-            // Khởi tạo Database qua EF Core
-            var dbContext = new CaroDbContext();
+            // Đọc cấu hình appsettings
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .Build();
+
+            string connectionString = configuration.GetConnectionString("DefaultConnection") 
+                ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+
+            // Khởi tạo CSDL qua EF Core
+            var optionsBuilder = new DbContextOptionsBuilder<CaroDbContext>();
+            optionsBuilder.UseSqlServer(connectionString);
+            var dbContext = new CaroDbContext(optionsBuilder.Options);
             try
             {
                 await dbContext.Database.EnsureCreatedAsync();
@@ -28,14 +41,14 @@ namespace CaroServer
 
             var matchRepo = new MatchHistoryRepository(dbContext);
 
-            // Khởi tạo các manager và dịch vụ mạng
+            // Khởi tạo các Manager & Service
             var sessionManager = new SessionManager();
             var roomManager = new RoomManager();
             var lobbyManager = new LobbyManager();
             var eventBroadcaster = new EventBroadcaster(sessionManager, roomManager);
             var tcpServer = new TcpServerManager(sessionManager, roomManager, lobbyManager, matchRepo, eventBroadcaster);
 
-            // Bắt đầu lắng nghe TCP bất đồng bộ
+            // Bắt đầu Server lắng nghe TCP
             Task serverTask = tcpServer.StartListeningAsync();
 
             Console.WriteLine("Press Enter to stop the Server...");
