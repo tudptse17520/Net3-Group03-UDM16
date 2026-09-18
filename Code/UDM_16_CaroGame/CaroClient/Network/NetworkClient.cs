@@ -26,11 +26,21 @@ namespace CaroClient.Network
 
         public bool IsConnected => _isConnected && _client != null && _client.Connected;
         public string CurrentNickname { get; private set; } = string.Empty;
+        public string SessionToken { get; private set; } = string.Empty;
 
         // Events để UI lắng nghe
         public event Action<bool, string>? OnConnectResult;
+        public event Action<bool, ReconnectResponse>? OnReconnectResult;
+        public event Action<GameStateDto>? OnGameStateRestored;
         public event Action<List<string>>? OnPlayerListReceived;
+        public event Action<ChallengeRequest>? OnChallengeReceived;
+        public event Action<ChallengeResponse>? OnChallengeResponseReceived;
+        public event Action<List<MatchDto>>? OnMatchHistoryReceived;
         public event Action? OnDisconnected;
+        public event Action<CaroShared.Contracts.JoinSpectatorResponse>? OnSpectatorJoined;
+        public event Action<CaroShared.Contracts.MoveMadeEventDto>? OnMoveMade;
+        public event Action<CaroShared.Protocol.NetworkMessage>? OnGameOver;
+        public event Action<CaroShared.Protocol.NetworkMessage>? OnMessageReceived;
 
         // Events cho Gameplay & Spectator
         public event Action<JoinSpectatorResponse>? OnSpectatorJoined;
@@ -79,6 +89,44 @@ namespace CaroClient.Network
             CurrentNickname = nickname;
             var message = new NetworkMessage(MessageType.LoginRequest, nickname);
             await SendMessageAsync(message);
+        }
+
+        // Gửi yêu cầu thách đấu người chơi khác
+        public async Task SendChallengeRequestAsync(string targetPlayerId)
+        {
+            var message = new NetworkMessage(MessageType.ChallengeRequest, new ChallengeRequest { TargetPlayerId = targetPlayerId });
+            await SendMessageAsync(message);
+        }
+
+        // Gửi phản hồi đồng ý hoặc từ chối thách đấu
+        public async Task SendChallengeResponseAsync(string challengerId, bool isAccepted)
+        {
+            var message = new NetworkMessage(MessageType.ChallengeResponse, new ChallengeResponse { ChallengerId = challengerId, IsAccepted = isAccepted });
+            await SendMessageAsync(message);
+        }
+
+        // Kết nối lại bằng SessionToken đã nhận sau Login.
+        public async Task<bool> ReconnectAsync(string ip, int port)
+        {
+            if (string.IsNullOrWhiteSpace(SessionToken))
+            {
+                OnReconnectResult?.Invoke(false, new ReconnectResponse
+                {
+                    Success = false,
+                    Message = "Chưa có SessionToken để reconnect."
+                });
+                return false;
+            }
+
+            bool connected = await ConnectAsync(ip, port);
+            if (!connected)
+            {
+                return false;
+            }
+
+            var request = new ReconnectRequest { SessionToken = SessionToken };
+            await SendMessageAsync(new NetworkMessage(MessageType.ReconnectRequest, request));
+            return true;
         }
 
         // Gửi NetworkMessage lên Server
@@ -134,12 +182,73 @@ namespace CaroClient.Network
             switch (message.Type)
             {
                 case MessageType.LoginResponse:
+                    ParseLoginResponse(message);
                     OnConnectResult?.Invoke(true, "Login successful!");
                     ParseAndNotifyPlayerList(message);
                     break;
 
+                case MessageType.ReconnectResponse:
+                    ParseReconnectResponse(message);
+                    break;
+
+                case MessageType.Ping:
+                    _ = SendMessageAsync(HeartbeatProtocol.CreatePong(message));
+                    break;
+
                 case MessageType.PlayerListResponse:
                     ParseAndNotifyPlayerList(message);
+                    break;
+                    
+                case MessageType.JoinSpectatorResponse:
+                    if (message.Payload is JsonElement specRespElement)
+                    {
+                        var specResp = specRespElement.Deserialize<CaroShared.Contracts.JoinSpectatorResponse>(JsonOptions);
+                        if (specResp != null)
+                        {
+                            OnSpectatorJoined?.Invoke(specResp);
+                        }
+                    }
+                    break;
+                    
+                case MessageType.MoveMadeEvent:
+                    if (message.Payload is JsonElement moveElement)
+                    {
+                        var moveDto = moveElement.Deserialize<CaroShared.Contracts.MoveMadeEventDto>(JsonOptions);
+                        if (moveDto != null)
+                        {
+                            OnMoveMade?.Invoke(moveDto);
+                        }
+                    }
+                    break;
+                    
+                case MessageType.GameOverEvent:
+                    OnGameOver?.Invoke(message);
+                    break;
+
+                case MessageType.MatchHistoryResponse:
+                    ParseAndNotifyMatchHistory(message);
+                    break;
+
+                case MessageType.ChallengeRequest:
+                    if (message.Payload is JsonElement challengeReqElement)
+                    {
+                        var req = challengeReqElement.Deserialize<ChallengeRequest>(JsonOptions);
+                        if (req != null)
+                        {
+                            OnChallengeReceived?.Invoke(req);
+                        }
+                    }
+                    break;
+
+                case MessageType.ChallengeResponse:
+                    if (message.Payload is JsonElement challengeRespElement)
+                    {
+                        var resp = challengeRespElement.Deserialize<ChallengeResponse>(JsonOptions);
+                        if (resp != null)
+                        {
+                            OnChallengeResponseReceived?.Invoke(resp);
+                        }
+                    }
                     break;
 
                 case MessageType.JoinSpectatorResponse:
@@ -177,7 +286,35 @@ namespace CaroClient.Network
 
                 default:
                     Console.WriteLine($"[NetworkClient] Unhandled message type: {message.Type}");
+                    OnMessageReceived?.Invoke(message);
                     break;
+            }
+        }
+
+        private void ParseLoginResponse(NetworkMessage message)
+        {
+            if (message.Payload is JsonElement element)
+            {
+                var response = element.Deserialize<PlayerListResponse>(JsonOptions);
+                if (!string.IsNullOrWhiteSpace(response?.SessionToken))
+                {
+                    SessionToken = response.SessionToken;
+                }
+            }
+        }
+
+        private void ParseReconnectResponse(NetworkMessage message)
+        {
+            if (message.Payload is not JsonElement element) return;
+
+            var response = element.Deserialize<ReconnectResponse>(JsonOptions);
+            if (response == null) return;
+
+            OnReconnectResult?.Invoke(response.Success, response);
+
+            if (response.Success && response.GameState != null)
+            {
+                OnGameStateRestored?.Invoke(response.GameState);
             }
         }
 
@@ -190,6 +327,19 @@ namespace CaroClient.Network
                 if (response != null && response.PlayerNames != null)
                 {
                     OnPlayerListReceived?.Invoke(response.PlayerNames);
+                }
+            }
+        }
+
+        // Parse Payload thành danh sách lịch sử đấu
+        private void ParseAndNotifyMatchHistory(NetworkMessage message)
+        {
+            if (message.Payload is JsonElement element)
+            {
+                var response = element.Deserialize<MatchHistoryResponse>(JsonOptions);
+                if (response != null && response.Matches != null)
+                {
+                    OnMatchHistoryReceived?.Invoke(response.Matches);
                 }
             }
         }

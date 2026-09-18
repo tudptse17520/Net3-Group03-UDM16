@@ -48,6 +48,16 @@ namespace CaroServer.Game
             Timer.Stop();
         }
 
+        public void PauseTimer()
+        {
+            Timer.Pause();
+        }
+
+        public void ResumeTimer(Action<int> onTimeout)
+        {
+            Timer.Resume(onTimeout);
+        }
+
         public GameSessionDto ToDto()
         {
             return new GameSessionDto

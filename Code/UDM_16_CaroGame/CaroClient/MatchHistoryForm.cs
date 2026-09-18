@@ -3,6 +3,11 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using CaroShared.Contracts;
+using CaroShared.Enums;
+using CaroShared.Protocol;
+using CaroClient.Network;
+using System.Text.Json;
 
 namespace CaroClient
 {
@@ -25,7 +30,28 @@ namespace CaroClient
             // Đăng ký sự kiện tô màu kết quả cho DataGridView
             DgvMatchHistory.CellFormatting += DgvMatchHistory_CellFormatting;
 
+            // Đăng ký sự kiện nhận lịch sử đấu từ Server
+            NetworkClient.Instance.OnMatchHistoryReceived += OnMatchHistoryReceivedHandler;
+            this.FormClosed += MatchHistoryForm_FormClosed;
+
             LoadMatchHistory();
+        }
+
+        private void MatchHistoryForm_FormClosed(object? sender, FormClosedEventArgs e)
+        {
+            NetworkClient.Instance.OnMatchHistoryReceived -= OnMatchHistoryReceivedHandler;
+        }
+
+        private void OnMatchHistoryReceivedHandler(List<MatchDto> matches)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => OnMatchHistoryReceivedHandler(matches)));
+                return;
+            }
+
+            PopulateDataGridView(matches);
+            UpdateStats(matches);
         }
 
         // ============================
@@ -33,17 +59,23 @@ namespace CaroClient
         // ============================
         private void LoadMatchHistory()
         {
-            // TODO: Thay bằng dữ liệu thật từ Server khi tích hợp
-            // Xem hướng dẫn tích hợp tại walkthrough.md
-            var mockData = GetMockData();
-            PopulateDataGridView(mockData);
-            UpdateStats(mockData);
+            try
+            {
+                var request = new MatchHistoryRequest { PlayerId = _playerName };
+                var message = new NetworkMessage(MessageType.MatchHistoryRequest, request);
+                _ = NetworkClient.Instance.SendMessageAsync(message);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Lỗi gửi yêu cầu lịch sử: {ex.Message}", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
+
 
         // ============================
         // Populate DataGridView
         // ============================
-        private void PopulateDataGridView(List<MatchHistoryItem> matches)
+        private void PopulateDataGridView(List<MatchDto> matches)
         {
             DgvMatchHistory.Rows.Clear();
 
@@ -55,24 +87,24 @@ namespace CaroClient
                 string opponent;
                 string myPiece;
 
-                if (string.Equals(match.PlayerXName, _playerName, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(match.PlayerXId, _playerName, StringComparison.OrdinalIgnoreCase))
                 {
-                    opponent = match.PlayerOName;
+                    opponent = match.PlayerOId;
                     myPiece = "X";
                 }
                 else
                 {
-                    opponent = match.PlayerXName;
+                    opponent = match.PlayerXId;
                     myPiece = "O";
                 }
 
-                // Xác định kết quả hiển thị
+                // Xác định kết quả hiển thị (WinnerSymbol: 1 = X thắng, 2 = O thắng, 0 = Hòa)
                 string resultDisplay;
-                if (string.IsNullOrEmpty(match.WinnerName))
+                if (match.WinnerSymbol == 0)
                 {
                     resultDisplay = "Hòa ➖";
                 }
-                else if (string.Equals(match.WinnerName, _playerName, StringComparison.OrdinalIgnoreCase))
+                else if ((myPiece == "X" && match.WinnerSymbol == 1) || (myPiece == "O" && match.WinnerSymbol == 2))
                 {
                     resultDisplay = "Thắng ✅";
                 }
@@ -82,10 +114,8 @@ namespace CaroClient
                 }
 
                 // Format thời gian
-                string startTimeStr = match.StartedAt.ToString("dd/MM/yyyy HH:mm");
-                string durationStr = match.Duration.TotalMinutes >= 1
-                    ? $"{(int)match.Duration.TotalMinutes} phút {match.Duration.Seconds:00} giây"
-                    : $"{match.Duration.Seconds} giây";
+                string startTimeStr = match.PlayedAt.ToString("dd/MM/yyyy HH:mm");
+                string durationStr = $"{match.TotalMoves} nước đi";
 
                 DgvMatchHistory.Rows.Add(
                     (i + 1).ToString(),
@@ -101,7 +131,7 @@ namespace CaroClient
         // ============================
         // Cập nhật panel thống kê
         // ============================
-        private void UpdateStats(List<MatchHistoryItem> matches)
+        private void UpdateStats(List<MatchDto> matches)
         {
             int total = matches.Count;
             int wins = 0;
@@ -109,12 +139,17 @@ namespace CaroClient
 
             foreach (var match in matches)
             {
-                if (!string.IsNullOrEmpty(match.WinnerName))
+                if (match.WinnerSymbol == 0) continue; // Hòa
+
+                bool isX = string.Equals(match.PlayerXId, _playerName, StringComparison.OrdinalIgnoreCase);
+                
+                if ((isX && match.WinnerSymbol == 1) || (!isX && match.WinnerSymbol == 2))
                 {
-                    if (string.Equals(match.WinnerName, _playerName, StringComparison.OrdinalIgnoreCase))
-                        wins++;
-                    else
-                        losses++;
+                    wins++;
+                }
+                else
+                {
+                    losses++;
                 }
             }
 
@@ -246,78 +281,6 @@ namespace CaroClient
             path.CloseFigure();
 
             return path;
-        }
-
-        // ============================
-        // Mock Data
-        // TODO: Xóa khi tích hợp Server thật
-        // ============================
-        private List<MatchHistoryItem> GetMockData()
-        {
-            return new List<MatchHistoryItem>
-            {
-                new()
-                {
-                    PlayerXName = _playerName,
-                    PlayerOName = "An_Pro_Caro",
-                    WinnerName = _playerName,
-                    StartedAt = DateTime.Now.AddMinutes(-15),
-                    Duration = TimeSpan.FromSeconds(252)
-                },
-                new()
-                {
-                    PlayerXName = "Binh_Master",
-                    PlayerOName = _playerName,
-                    WinnerName = "Binh_Master",
-                    StartedAt = DateTime.Now.AddHours(-2),
-                    Duration = TimeSpan.FromSeconds(525)
-                },
-                new()
-                {
-                    PlayerXName = _playerName,
-                    PlayerOName = "Cuong_Noob",
-                    WinnerName = _playerName,
-                    StartedAt = DateTime.Now.AddDays(-1),
-                    Duration = TimeSpan.FromSeconds(110)
-                },
-                new()
-                {
-                    PlayerXName = "Duy_Legend",
-                    PlayerOName = _playerName,
-                    WinnerName = _playerName,
-                    StartedAt = DateTime.Now.AddDays(-2),
-                    Duration = TimeSpan.FromSeconds(360)
-                },
-                new()
-                {
-                    PlayerXName = _playerName,
-                    PlayerOName = "Em_NewPlayer",
-                    WinnerName = "Em_NewPlayer",
-                    StartedAt = DateTime.Now.AddDays(-3),
-                    Duration = TimeSpan.FromSeconds(600)
-                },
-                new()
-                {
-                    PlayerXName = "Phuc_King",
-                    PlayerOName = _playerName,
-                    WinnerName = null, // Hòa
-                    StartedAt = DateTime.Now.AddDays(-5),
-                    Duration = TimeSpan.FromSeconds(900)
-                },
-            };
-        }
-
-        // ============================
-        // Internal DTO — chỉ dùng trong CaroClient
-        // TODO: Thay bằng MatchHistoryItemDto từ CaroShared khi tích hợp
-        // ============================
-        private class MatchHistoryItem
-        {
-            public string PlayerXName { get; set; } = "";
-            public string PlayerOName { get; set; } = "";
-            public string? WinnerName { get; set; }
-            public DateTime StartedAt { get; set; }
-            public TimeSpan Duration { get; set; }
         }
     }
 }
