@@ -509,10 +509,34 @@ namespace CaroServer.Core
                     _lobbyManager.RemovePlayer(challengerSession.PlayerId);
                     _lobbyManager.RemovePlayer(senderSession.PlayerId);
                     await BroadcastPlayerListAsync();
-                }
 
-                // Gửi kết quả trả lời cho người gửi lời mời
-                await challengerSession.SendMessageAsync(message);
+                    // Gửi kết quả cho người mời (Challenger) — họ cầm X (1)
+                    var acceptForChallenger = new ChallengeResponse
+                    {
+                        ChallengerId = response.ChallengerId,
+                        IsAccepted = true,
+                        RoomId = roomId,
+                        MySymbol = 1,
+                        OpponentName = senderSession.PlayerId
+                    };
+                    await challengerSession.SendMessageAsync(new NetworkMessage(MessageType.ChallengeResponse, acceptForChallenger, message.RequestId));
+
+                    // Gửi kết quả cho người được mời (Sender) — họ cầm O (2)
+                    var acceptForSender = new ChallengeResponse
+                    {
+                        ChallengerId = response.ChallengerId,
+                        IsAccepted = true,
+                        RoomId = roomId,
+                        MySymbol = 2,
+                        OpponentName = challengerSession.PlayerId
+                    };
+                    await senderSession.SendMessageAsync(new NetworkMessage(MessageType.ChallengeResponse, acceptForSender, message.RequestId));
+                }
+                else
+                {
+                    // Từ chối -> chỉ gửi cho người mời
+                    await challengerSession.SendMessageAsync(message);
+                }
             }
             else
             {

@@ -32,6 +32,7 @@ namespace CaroClient
             BtnCreateRoom = new Button();
             BtnRefresh = new Button();
             BtnLogout = new Button();
+            BtnMatchHistory = new Button();
             SuspendLayout();
 
             // LblTitle
@@ -186,11 +187,25 @@ namespace CaroClient
             BtnLogout.UseVisualStyleBackColor = false;
             BtnLogout.Click += BtnLogout_Click;
 
+            // BtnMatchHistory
+            BtnMatchHistory.BackColor = ColorTranslator.FromHtml("#5C3A21");
+            BtnMatchHistory.Cursor = Cursors.Hand;
+            BtnMatchHistory.FlatAppearance.BorderSize = 0;
+            BtnMatchHistory.FlatStyle = FlatStyle.Flat;
+            BtnMatchHistory.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            BtnMatchHistory.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
+            BtnMatchHistory.Location = new Point(580, 355);
+            BtnMatchHistory.Name = "BtnMatchHistory";
+            BtnMatchHistory.Size = new Size(170, 35);
+            BtnMatchHistory.Text = "LỊCH SỬ ĐẤU";
+            BtnMatchHistory.UseVisualStyleBackColor = false;
+            BtnMatchHistory.Click += BtnMatchHistory_Click;
+
             // LobbyForm
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = ColorTranslator.FromHtml("#3B2314");
-            ClientSize = new Size(780, 390);
+            ClientSize = new Size(780, 410);
             Controls.Add(LblTitle);
             Controls.Add(LblWelcome);
             Controls.Add(LblPlayers);
@@ -204,6 +219,7 @@ namespace CaroClient
             Controls.Add(BtnCreateRoom);
             Controls.Add(BtnRefresh);
             Controls.Add(BtnLogout);
+            Controls.Add(BtnMatchHistory);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             Name = "LobbyForm";
@@ -228,5 +244,6 @@ namespace CaroClient
         private Button BtnCreateRoom;
         private Button BtnRefresh;
         private Button BtnLogout;
+        private Button BtnMatchHistory;
     }
 }

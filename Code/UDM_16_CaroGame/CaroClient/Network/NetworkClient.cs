@@ -35,7 +35,12 @@ namespace CaroClient.Network
         public event Action<List<string>>? OnPlayerListReceived;
         public event Action<ChallengeRequest>? OnChallengeReceived;
         public event Action<ChallengeResponse>? OnChallengeResponseReceived;
+        public event Action<List<MatchDto>>? OnMatchHistoryReceived;
         public event Action? OnDisconnected;
+        public event Action<CaroShared.Contracts.JoinSpectatorResponse>? OnSpectatorJoined;
+        public event Action<CaroShared.Contracts.MoveMadeEventDto>? OnMoveMade;
+        public event Action<CaroShared.Protocol.NetworkMessage>? OnGameOver;
+        public event Action<CaroShared.Protocol.NetworkMessage>? OnMessageReceived;
 
         private NetworkClient() { }
 
@@ -188,6 +193,36 @@ namespace CaroClient.Network
                 case MessageType.PlayerListResponse:
                     ParseAndNotifyPlayerList(message);
                     break;
+                    
+                case MessageType.JoinSpectatorResponse:
+                    if (message.Payload is JsonElement specRespElement)
+                    {
+                        var specResp = specRespElement.Deserialize<CaroShared.Contracts.JoinSpectatorResponse>(JsonOptions);
+                        if (specResp != null)
+                        {
+                            OnSpectatorJoined?.Invoke(specResp);
+                        }
+                    }
+                    break;
+                    
+                case MessageType.MoveMadeEvent:
+                    if (message.Payload is JsonElement moveElement)
+                    {
+                        var moveDto = moveElement.Deserialize<CaroShared.Contracts.MoveMadeEventDto>(JsonOptions);
+                        if (moveDto != null)
+                        {
+                            OnMoveMade?.Invoke(moveDto);
+                        }
+                    }
+                    break;
+                    
+                case MessageType.GameOverEvent:
+                    OnGameOver?.Invoke(message);
+                    break;
+
+                case MessageType.MatchHistoryResponse:
+                    ParseAndNotifyMatchHistory(message);
+                    break;
 
                 case MessageType.ChallengeRequest:
                     if (message.Payload is JsonElement challengeReqElement)
@@ -213,6 +248,7 @@ namespace CaroClient.Network
 
                 default:
                     Console.WriteLine($"[NetworkClient] Unhandled message type: {message.Type}");
+                    OnMessageReceived?.Invoke(message);
                     break;
             }
         }
@@ -253,6 +289,19 @@ namespace CaroClient.Network
                 if (response != null && response.PlayerNames != null)
                 {
                     OnPlayerListReceived?.Invoke(response.PlayerNames);
+                }
+            }
+        }
+
+        // Parse Payload thành danh sách lịch sử đấu
+        private void ParseAndNotifyMatchHistory(NetworkMessage message)
+        {
+            if (message.Payload is JsonElement element)
+            {
+                var response = element.Deserialize<MatchHistoryResponse>(JsonOptions);
+                if (response != null && response.Matches != null)
+                {
+                    OnMatchHistoryReceived?.Invoke(response.Matches);
                 }
             }
         }

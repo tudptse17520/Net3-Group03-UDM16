@@ -9,7 +9,7 @@ namespace CaroShared.Contracts
         // Đồng ý hay từ chối
         public bool IsAccepted { get; init; }
 
-        // --- Server trả về khi tạo phòng thành công ---
+        // --- Thêm các trường sau để Server báo lại cho Client khi tạo phòng ---
         public string RoomId { get; init; } = string.Empty;
         public int MySymbol { get; init; } // 1 cho X, 2 cho O
         public string OpponentName { get; init; } = string.Empty;
