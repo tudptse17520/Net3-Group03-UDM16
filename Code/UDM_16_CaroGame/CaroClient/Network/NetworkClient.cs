@@ -37,9 +37,12 @@ namespace CaroClient.Network
         // ── Public properties ──
         public bool IsConnected => _isConnected && _tcpClient != null && _tcpClient.Connected;
         public string CurrentNickname { get; private set; } = string.Empty;
+        public string SessionToken { get; private set; } = string.Empty;
 
         // ── Events: Lobby / Login ──
         public event Action<bool, string>? OnConnectResult;
+        public event Action<bool, ReconnectResponse>? OnReconnectResult;
+        public event Action<GameStateDto>? OnGameStateRestored;
         public event Action<List<string>>? OnPlayerListReceived;
 
         // ── Events: Gameplay (Bước 2 plan) ──
@@ -52,6 +55,12 @@ namespace CaroClient.Network
         public event Action? OnDisconnected;
 
         private NetworkClient() { }
+
+        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+        };
 
         // ────────────────────────────────────────────
         //  ConnectAsync
@@ -90,6 +99,32 @@ namespace CaroClient.Network
             CurrentNickname = nickname;
             var message = new NetworkMessage(MessageType.LoginRequest, nickname);
             await SendMessageAsync(message);
+        }
+
+        // ────────────────────────────────────────────
+        //  ReconnectAsync (dùng SessionToken)
+        // ────────────────────────────────────────────
+        public async Task<bool> ReconnectAsync(string ip, int port)
+        {
+            if (string.IsNullOrWhiteSpace(SessionToken))
+            {
+                OnReconnectResult?.Invoke(false, new ReconnectResponse
+                {
+                    Success = false,
+                    Message = "Chưa có SessionToken để reconnect."
+                });
+                return false;
+            }
+
+            bool connected = await ConnectAsync(ip, port);
+            if (!connected)
+            {
+                return false;
+            }
+
+            var request = new ReconnectRequest { SessionToken = SessionToken };
+            await SendMessageAsync(new NetworkMessage(MessageType.ReconnectRequest, request));
+            return true;
         }
 
         // ────────────────────────────────────────────
@@ -165,16 +200,21 @@ namespace CaroClient.Network
             {
                 // ── Lobby / Login ──
                 case MessageType.LoginResponse:
+                    ParseLoginResponse(msg);
                     OnConnectResult?.Invoke(true, "Login successful!");
                     ParseAndNotifyPlayerList(msg);
                     break;
 
+                case MessageType.ReconnectResponse:
+                    ParseReconnectResponse(msg);
+                    break;
+
+                case MessageType.Ping:
+                    _ = SendMessageAsync(HeartbeatProtocol.CreatePong(msg));
+                    break;
+
                 case MessageType.PlayerListResponse:
                     ParseAndNotifyPlayerList(msg);
-                    break;
-                    
-                case MessageType.Ping:
-                    _ = SendMessageAsync(new NetworkMessage(MessageType.Pong, null));
                     break;
 
                 // ── Gameplay ──
@@ -195,8 +235,36 @@ namespace CaroClient.Network
         }
 
         // ────────────────────────────────────────────
-        //  ParseAndNotifyPlayerList  (giữ nguyên logic cũ)
+        //  Helper Methods (Parsing)
         // ────────────────────────────────────────────
+        private void ParseLoginResponse(NetworkMessage message)
+        {
+            if (message.Payload is JsonElement element)
+            {
+                var response = element.Deserialize<PlayerListResponse>(JsonOptions);
+                if (!string.IsNullOrWhiteSpace(response?.SessionToken))
+                {
+                    SessionToken = response.SessionToken;
+                }
+            }
+        }
+
+        private void ParseReconnectResponse(NetworkMessage message)
+        {
+            if (message.Payload is not JsonElement element) return;
+
+            var response = element.Deserialize<ReconnectResponse>(JsonOptions);
+            if (response == null) return;
+
+            OnReconnectResult?.Invoke(response.Success, response);
+
+            if (response.Success && response.GameState != null)
+            {
+                OnGameStateRestored?.Invoke(response.GameState);
+            }
+        }
+
+        // Parse Payload thành danh sách tên người chơi
         private void ParseAndNotifyPlayerList(NetworkMessage message)
         {
             if (message.Payload is JsonElement element)

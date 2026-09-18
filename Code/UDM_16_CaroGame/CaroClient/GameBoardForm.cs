@@ -536,6 +536,12 @@ namespace CaroClient
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             StopTurnTimer();
+            // Hủy đăng ký event tránh memory leak
+            if (_networkClient != null)
+            {
+                _networkClient.OnMoveMade -= HandleMoveMade;
+                _networkClient.OnGameOver -= HandleGameOver;
+            }
             base.OnFormClosing(e);
         }
 
@@ -602,18 +608,6 @@ namespace CaroClient
         private void label3_Click_1(object sender, EventArgs e) { }
         private void label9_Click(object sender, EventArgs e) { }
 
-        // ══════════════════════════════════════════════════════════════════
-        //  Cleanup khi đóng Form
-        // ══════════════════════════════════════════════════════════════════
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            // Hủy đăng ký event tránh memory leak
-            if (_networkClient != null)
-            {
-                _networkClient.OnMoveMade -= HandleMoveMade;
-                _networkClient.OnGameOver -= HandleGameOver;
-            }
-            base.OnFormClosing(e);
-        }
+
     }
 }
