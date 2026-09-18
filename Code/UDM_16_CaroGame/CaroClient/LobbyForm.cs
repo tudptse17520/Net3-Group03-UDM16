@@ -38,6 +38,16 @@ namespace CaroClient
             CaroClient.Network.NetworkClient.Instance.OnChallengeReceived += OnChallengeReceivedHandler;
             CaroClient.Network.NetworkClient.Instance.OnChallengeResponseReceived += OnChallengeResponseReceivedHandler;
             this.FormClosing += LobbyForm_FormClosing;
+
+            // DoubleClick vào danh sách người chơi cũng gửi thách đấu (thêm cách nhanh)
+            LstPlayers.DoubleClick += LstPlayers_DoubleClick;
+
+            // ContextMenuStrip cho danh sách phòng (Spectator)
+            var cmsRoomActions = new ContextMenuStrip();
+            var tsmSpectate = new ToolStripMenuItem("👁️ Xem trận");
+            tsmSpectate.Click += TsmSpectate_Click;
+            cmsRoomActions.Items.Add(tsmSpectate);
+            LstRooms.ContextMenuStrip = cmsRoomActions;
         }
 
         private void OnPlayerListReceivedHandler(System.Collections.Generic.List<string> playerNames)
@@ -89,7 +99,8 @@ namespace CaroClient
 
             if (isAccepted)
             {
-                OpenGameBoard();
+                // Khi chấp nhận, Server sẽ gửi ChallengeResponse kèm RoomId về cho cả 2 người chơi
+                // Quá trình mở GameBoard sẽ được kích hoạt trong OnChallengeResponseReceivedHandler
             }
         }
 
@@ -105,7 +116,7 @@ namespace CaroClient
             if (response.IsAccepted)
             {
                 MessageBox.Show($"Đối thủ [{response.ChallengerId}] đã CHẤP NHẬN lời mời!\nĐang vào bàn cờ...", "Thách đấu thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                OpenGameBoard();
+                OpenGameBoard(response.RoomId, response.MySymbol, response.OpponentName);
             }
             else
             {
@@ -113,16 +124,24 @@ namespace CaroClient
             }
         }
 
-        // Chuyển sang màn hình Bàn cờ (GameBoardForm)
-        private void OpenGameBoard()
+        // Chuyển sang màn hình Bàn cờ (GameBoardForm) với thông tin phòng
+        private void OpenGameBoard(string roomId = "", int mySymbol = 1, string opponentName = "")
         {
             if (this.InvokeRequired)
             {
-                this.Invoke(new Action(OpenGameBoard));
+                this.Invoke(new Action(() => OpenGameBoard(roomId, mySymbol, opponentName)));
                 return;
             }
 
-            GameBoardForm gameForm = new GameBoardForm();
+            GameBoardForm gameForm;
+            if (!string.IsNullOrEmpty(roomId))
+            {
+                gameForm = new GameBoardForm(roomId, mySymbol, opponentName);
+            }
+            else
+            {
+                gameForm = new GameBoardForm();
+            }
             this.Hide();
             gameForm.ShowDialog();
             this.Show();
@@ -150,6 +169,28 @@ namespace CaroClient
 
             await CaroClient.Network.NetworkClient.Instance.SendChallengeRequestAsync(targetNick);
             MessageBox.Show($"Đã gửi lời mời thách đấu tới [{targetNick}]. Vui lòng chờ phản hồi...", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // Nháy đúp vào danh sách người chơi để thách đấu nhanh
+        private void LstPlayers_DoubleClick(object? sender, EventArgs e)
+        {
+            if (LstPlayers.SelectedItem == null) return;
+            // Thực hiện logic tương tự BtnChallenge_Click
+            BtnChallenge_Click(sender!, e);
+        }
+
+        // Click chuột phải vào danh sách phòng → Xem trận (Spectator)
+        private void TsmSpectate_Click(object? sender, EventArgs e)
+        {
+            if (LstRooms.SelectedItem == null)
+            {
+                MessageBox.Show("Vui lòng chọn một phòng để vào xem!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string roomId = LstRooms.SelectedItem.ToString() ?? string.Empty;
+            // TODO: Gửi JoinSpectatorRequest lên server khi được hỗ trợ
+            MessageBox.Show($"Đang xin vào xem phòng: {roomId}", "Spectator", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void LobbyForm_FormClosing(object? sender, FormClosingEventArgs e)
