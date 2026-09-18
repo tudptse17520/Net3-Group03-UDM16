@@ -12,6 +12,7 @@ namespace CaroClient
         // ── Trạng thái bàn cờ ─────────────────────────────────────────────
         // 0 = trống | 1 = X (Player 1) | 2 = O (Player 2)
         private int[][] _board = CreateJaggedBoard();
+        private string _roomId = string.Empty;
 
         // ── Spectator ─────────────────────────────────────────────────────
         private bool _isSpectator = false;
@@ -41,6 +42,11 @@ namespace CaroClient
 
             // Đăng ký sự kiện Resize để căn giữa cụm chơi
             this.Resize += GameBoardForm_Resize;
+            
+            CaroClient.Network.NetworkClient.Instance.OnMoveMade += HandleMoveMade;
+            CaroClient.Network.NetworkClient.Instance.OnGameOver += HandleGameOver;
+            // Listen for NewGameEvent
+            CaroClient.Network.NetworkClient.Instance.OnMessageReceived += HandleMessageReceived;
         }
 
         // ── Constructor Spectator ─────────────────────────────────────────
@@ -330,6 +336,9 @@ namespace CaroClient
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             StopTurnTimer();
+            CaroClient.Network.NetworkClient.Instance.OnMoveMade -= HandleMoveMade;
+            CaroClient.Network.NetworkClient.Instance.OnGameOver -= HandleGameOver;
+            CaroClient.Network.NetworkClient.Instance.OnMessageReceived -= HandleMessageReceived;
             base.OnFormClosing(e);
         }
 
@@ -350,7 +359,24 @@ namespace CaroClient
                 return;
             }
 
-            MessageBox.Show("Tính năng Đầu Hàng đang chờ Backend (Dev 1) cập nhật SurrenderRequest. Vui lòng thử lại sau!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            var result = MessageBox.Show(
+                "Bạn có chắc chắn muốn đầu hàng?",
+                "Xác nhận đầu hàng",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (result == DialogResult.Yes)
+            {
+                var req = new CaroShared.Contracts.SurrenderRequest
+                {
+                    RoomId   = _roomId,
+                    PlayerId = CaroClient.Network.NetworkClient.Instance.CurrentNickname
+                };
+                var msg = new CaroShared.Protocol.NetworkMessage(
+                    CaroShared.Enums.MessageType.SurrenderRequest, req);
+                _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
+                // Server broadcast GameOverEvent — form sẽ xử lý kết thúc ván tự động
+            }
         }
 
         // btnNewGame
@@ -358,7 +384,14 @@ namespace CaroClient
         //                    Server xác nhận → gọi ResetBoard() ở phía client.
         private void button3_Click(object sender, EventArgs e)
         {
-            MessageBox.Show("Tính năng Ván Mới đang chờ Backend (Dev 1) cập nhật NewGameRequest. Vui lòng thử lại sau!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            var req = new CaroShared.Contracts.NewGameRequest
+            {
+                RoomId   = _roomId,
+                PlayerId = CaroClient.Network.NetworkClient.Instance.CurrentNickname
+            };
+            var msg = new CaroShared.Protocol.NetworkMessage(
+                CaroShared.Enums.MessageType.NewGameRequest, req);
+            _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
         }
 
         private void pictureBox1_Click(object sender, EventArgs e) { }
@@ -368,5 +401,52 @@ namespace CaroClient
         private void label3_Click(object sender, EventArgs e) { }
         private void label3_Click_1(object sender, EventArgs e) { }
         private void label9_Click(object sender, EventArgs e) { }
+
+        private void HandleMoveMade(CaroShared.Contracts.MoveMadeEventDto dto)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => HandleMoveMade(dto)));
+                return;
+            }
+            if (dto.Board != null)
+            {
+                UpdateBoard(dto.Board);
+            }
+            // Update time, turn indicator here... (omitted for brevity unless needed)
+        }
+
+        private void HandleGameOver(CaroShared.Protocol.NetworkMessage msg)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => HandleGameOver(msg)));
+                return;
+            }
+            StopTurnTimer();
+            if (msg.Payload is System.Text.Json.JsonElement element)
+            {
+                var dto = element.Deserialize<CaroShared.Contracts.MoveMadeEventDto>(new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (dto != null)
+                {
+                    if (dto.Board != null) UpdateBoard(dto.Board);
+                    MessageBox.Show(dto.Message, "Game Over", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+        }
+
+        private void HandleMessageReceived(CaroShared.Protocol.NetworkMessage msg)
+        {
+            if (msg.Type == CaroShared.Enums.MessageType.NewGameEvent)
+            {
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new Action(() => HandleMessageReceived(msg)));
+                    return;
+                }
+                ResetBoard();
+                MessageBox.Show("Ván mới đã bắt đầu!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
     }
 }
