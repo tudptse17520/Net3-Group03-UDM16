@@ -222,6 +222,18 @@ namespace CaroServer.Managers
             }
         }
 
+        // Khởi tạo lại ván mới trong cùng một phòng và khởi động lại TurnTimer
+        public bool ResetRoom(string roomId)
+        {
+            var room = GetRoom(roomId);
+            if (room == null) return false;
+
+            room.ResetSession();
+            StartTurnTimer(room.Session, 1, room.Session.Engine.MoveCount + 1);
+            Console.WriteLine($"[RoomManager] Room {roomId} reset for new game");
+            return true;
+        }
+
         // Tìm Room theo ID
         public Room? GetRoom(string roomId)
         {
