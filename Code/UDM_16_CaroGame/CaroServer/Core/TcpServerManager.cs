@@ -34,20 +34,20 @@ namespace CaroServer.Core
             Converters = { new JsonStringEnumConverter() }
         };
 
-        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, LobbyManager lobbyManager, MatchHistoryRepository matchRepo)
-            : this(sessionManager, roomManager, lobbyManager, matchRepo, new EventBroadcaster(sessionManager, roomManager))
+        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, LobbyManager lobbyManager, MatchHistoryRepository matchRepo, int port = NetworkConstants.DefaultPort)
+            : this(sessionManager, roomManager, lobbyManager, matchRepo, new EventBroadcaster(sessionManager, roomManager), port)
         {
         }
 
-        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, LobbyManager lobbyManager, MatchHistoryRepository matchRepo, EventBroadcaster broadcaster)
+        public TcpServerManager(SessionManager sessionManager, RoomManager roomManager, LobbyManager lobbyManager, MatchHistoryRepository matchRepo, EventBroadcaster broadcaster, int port = NetworkConstants.DefaultPort)
         {
             _sessionManager = sessionManager;
             _roomManager = roomManager;
             _lobbyManager = lobbyManager;
             _matchRepo = matchRepo;
             _broadcaster = broadcaster;
-            // Lắng nghe kết nối trên port mặc định
-            _listener = new TcpListener(IPAddress.Any, NetworkConstants.DefaultPort);
+            // Lắng nghe kết nối trên port được cấu hình
+            _listener = new TcpListener(IPAddress.Any, port);
 
             // Đăng ký xử lý khi phòng hết thời gian
             _roomManager.OnRoomTimeout += async (roomId, moveResult) =>
@@ -87,7 +87,8 @@ namespace CaroServer.Core
         {
             _listener.Start();
             _isRunning = true;
-            Console.WriteLine($"[TcpServer] Server started on port {NetworkConstants.DefaultPort}");
+            var actualPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
+            Console.WriteLine($"[TcpServer] Server started on port {actualPort}");
 
             try
             {

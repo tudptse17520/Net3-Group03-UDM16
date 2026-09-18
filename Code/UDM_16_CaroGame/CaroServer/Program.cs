@@ -41,12 +41,18 @@ namespace CaroServer
 
             var matchRepo = new MatchHistoryRepository(dbContext);
 
+            int port = CaroShared.Constants.NetworkConstants.DefaultPort;
+            if (args.Length > 0 && int.TryParse(args[0], out int parsedPort))
+            {
+                port = parsedPort;
+            }
+
             // Khởi tạo các Manager & Service
             var sessionManager = new SessionManager();
             var roomManager = new RoomManager();
             var lobbyManager = new LobbyManager();
             var eventBroadcaster = new EventBroadcaster(sessionManager, roomManager);
-            var tcpServer = new TcpServerManager(sessionManager, roomManager, lobbyManager, matchRepo, eventBroadcaster);
+            var tcpServer = new TcpServerManager(sessionManager, roomManager, lobbyManager, matchRepo, eventBroadcaster, port);
 
             // Bắt đầu Server lắng nghe TCP
             Task serverTask = tcpServer.StartListeningAsync();
