@@ -33,6 +33,7 @@ namespace CaroClient.Network
         public event Action<bool, ReconnectResponse>? OnReconnectResult;
         public event Action<GameStateDto>? OnGameStateRestored;
         public event Action<List<string>>? OnPlayerListReceived;
+        public event Action<List<MatchDto>>? OnMatchHistoryReceived;
         public event Action? OnDisconnected;
 
         private NetworkClient() { }
@@ -173,6 +174,10 @@ namespace CaroClient.Network
                     ParseAndNotifyPlayerList(message);
                     break;
 
+                case MessageType.MatchHistoryResponse:
+                    ParseAndNotifyMatchHistory(message);
+                    break;
+
                 default:
                     Console.WriteLine($"[NetworkClient] Unhandled message type: {message.Type}");
                     break;
@@ -215,6 +220,19 @@ namespace CaroClient.Network
                 if (response != null && response.PlayerNames != null)
                 {
                     OnPlayerListReceived?.Invoke(response.PlayerNames);
+                }
+            }
+        }
+
+        // Parse Payload thành danh sách lịch sử đấu
+        private void ParseAndNotifyMatchHistory(NetworkMessage message)
+        {
+            if (message.Payload is JsonElement element)
+            {
+                var response = element.Deserialize<MatchHistoryResponse>(JsonOptions);
+                if (response != null && response.Matches != null)
+                {
+                    OnMatchHistoryReceived?.Invoke(response.Matches);
                 }
             }
         }
