@@ -1,4 +1,6 @@
+using CaroShared.Constants;
 using CaroShared.Contracts;
+using System.Text.Json;
 
 namespace CaroClient
 {
@@ -11,9 +13,15 @@ namespace CaroClient
         // ── Trạng thái bàn cờ ─────────────────────────────────────────────
         // 0 = trống | 1 = X (Player 1) | 2 = O (Player 2)
         private int[][] _board = CreateJaggedBoard();
+        private string _roomId = string.Empty;
+        private int _mySymbol = 1; // 1 = X, 2 = O
 
         // ── Spectator ─────────────────────────────────────────────────────
         private bool _isSpectator = false;
+
+        // ── Quản lý đồng hồ đếm ngược ──────────────────────────────────────
+        private System.Windows.Forms.Timer? _countdownTimer;
+        private int _remainingSeconds = 0;
 
         private static int[][] CreateJaggedBoard()
         {
@@ -36,6 +44,30 @@ namespace CaroClient
 
             // Đăng ký sự kiện Resize để căn giữa cụm chơi
             this.Resize += GameBoardForm_Resize;
+            
+            CaroClient.Network.NetworkClient.Instance.OnMoveMade += HandleMoveMade;
+            CaroClient.Network.NetworkClient.Instance.OnGameOver += HandleGameOver;
+            // Listen for NewGameEvent
+            CaroClient.Network.NetworkClient.Instance.OnMessageReceived += HandleMessageReceived;
+        }
+
+        // ── Constructor cho Player ────────────────────────────────────────
+        public GameBoardForm(string roomId, int mySymbol, string opponentName) : this()
+        {
+            _roomId = roomId;
+            _mySymbol = mySymbol;
+
+            string myName = CaroClient.Network.NetworkClient.Instance.CurrentNickname;
+            if (mySymbol == 1)
+            {
+                lblPlayer1Name.Text = myName;
+                lblPlayer2Name.Text = opponentName;
+            }
+            else
+            {
+                lblPlayer1Name.Text = opponentName;
+                lblPlayer2Name.Text = myName;
+            }
         }
 
         // ── Constructor Spectator ─────────────────────────────────────────
@@ -56,6 +88,12 @@ namespace CaroClient
 
             // 3. Cập nhật UI cho chế độ Spectator
             ApplySpectatorUI();
+
+            // 4. Bắt đầu timer từ thông tin thời gian snapshot của Server
+            if (snapshot.Session != null && snapshot.Session.RemainingTimeSeconds > 0)
+            {
+                StartTurnTimer(snapshot.Session.RemainingTimeSeconds);
+            }
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -196,9 +234,9 @@ namespace CaroClient
         /// </remarks>
         private void SendMove(int row, int col)
         {
-            throw new NotImplementedException(
-                $"[NetworkDev] Chưa triển khai gửi nước đi: row={row}, col={col}. " +
-                "Hãy kết nối NetworkClient và gửi MakeMoveRequest tới server.");
+            var request = new CaroShared.Contracts.MakeMoveRequest { X = col, Y = row };
+            var msg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.MakeMoveRequest, request);
+            _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
         }
 
         // ── Cập nhật UI từ dữ liệu server gửi về ─────────────────────────
@@ -229,6 +267,7 @@ namespace CaroClient
         // ── Reset bàn cờ về trạng thái ban đầu ───────────────────────────
         public void ResetBoard()
         {
+            StopTurnTimer();
             _board = CreateJaggedBoard();
             for (int row = 0; row < BoardSize; row++)
                 for (int col = 0; col < BoardSize; col++)
@@ -236,6 +275,92 @@ namespace CaroClient
                     _cells[row, col].Text      = "";
                     _cells[row, col].BackColor = Color.FromArgb(245, 222, 179);
                 }
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  Quản lý đồng hồ đếm ngược thời gian (Client Timer UI)
+        // ══════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Bắt đầu đếm ngược lượt mới với số giây quy định.
+        /// </summary>
+        /// <param name="seconds">Số giây đếm ngược (Mặc định: TurnTimeoutSeconds = 30s)</param>
+        public void StartTurnTimer(int seconds = GameConstants.TurnTimeoutSeconds)
+        {
+            StopTurnTimer();
+
+            _remainingSeconds = seconds > 0 ? seconds : GameConstants.TurnTimeoutSeconds;
+            UpdateTimerUI();
+
+            _countdownTimer = new System.Windows.Forms.Timer
+            {
+                Interval = 1000 // 1 giây
+            };
+            _countdownTimer.Tick += CountdownTimer_Tick;
+            _countdownTimer.Start();
+        }
+
+        /// <summary>
+        /// Dừng đếm ngược thời gian.
+        /// </summary>
+        public void StopTurnTimer()
+        {
+            if (_countdownTimer != null)
+            {
+                _countdownTimer.Stop();
+                _countdownTimer.Tick -= CountdownTimer_Tick;
+                _countdownTimer.Dispose();
+                _countdownTimer = null;
+            }
+        }
+
+        private void CountdownTimer_Tick(object? sender, EventArgs e)
+        {
+            if (_remainingSeconds > 0)
+            {
+                _remainingSeconds--;
+                UpdateTimerUI();
+            }
+            else
+            {
+                // Khi đồng hồ về 00:00: Dừng timer client, giữ 00:00 và chờ Server xử lý Timeout
+                StopTurnTimer();
+            }
+        }
+
+        /// <summary>
+        /// Cập nhật hiển thị label thời gian đếm ngược.
+        /// </summary>
+        private void UpdateTimerUI()
+        {
+            if (lblTimeCount.InvokeRequired)
+            {
+                lblTimeCount.Invoke(new Action(UpdateTimerUI));
+                return;
+            }
+
+            int minutes = _remainingSeconds / 60;
+            int secs = _remainingSeconds % 60;
+            lblTimeCount.Text = $"{minutes:D2}:{secs:D2}";
+
+            // Đổi màu đỏ cảnh báo khi còn <= 5 giây
+            if (_remainingSeconds <= 5)
+            {
+                lblTimeCount.ForeColor = Color.Red;
+            }
+            else
+            {
+                lblTimeCount.ForeColor = Color.DarkOrange;
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            StopTurnTimer();
+            CaroClient.Network.NetworkClient.Instance.OnMoveMade -= HandleMoveMade;
+            CaroClient.Network.NetworkClient.Instance.OnGameOver -= HandleGameOver;
+            CaroClient.Network.NetworkClient.Instance.OnMessageReceived -= HandleMessageReceived;
+            base.OnFormClosing(e);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -255,9 +380,24 @@ namespace CaroClient
                 return;
             }
 
-            throw new NotImplementedException(
-                "[NetworkDev] Chưa triển khai đầu hàng. " +
-                "Hãy gửi SurrenderRequest tới server và xử lý GameOverEvent.");
+            var result = MessageBox.Show(
+                "Bạn có chắc chắn muốn đầu hàng?",
+                "Xác nhận đầu hàng",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (result == DialogResult.Yes)
+            {
+                var req = new CaroShared.Contracts.SurrenderRequest
+                {
+                    RoomId   = _roomId,
+                    PlayerId = CaroClient.Network.NetworkClient.Instance.CurrentNickname
+                };
+                var msg = new CaroShared.Protocol.NetworkMessage(
+                    CaroShared.Enums.MessageType.SurrenderRequest, req);
+                _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
+                // Server broadcast GameOverEvent — form sẽ xử lý kết thúc ván tự động
+            }
         }
 
         // btnNewGame
@@ -265,9 +405,14 @@ namespace CaroClient
         //                    Server xác nhận → gọi ResetBoard() ở phía client.
         private void button3_Click(object sender, EventArgs e)
         {
-            throw new NotImplementedException(
-                "[NetworkDev] Chưa triển khai yêu cầu ván mới. " +
-                "Hãy gửi NewGameRequest và gọi ResetBoard() sau khi server xác nhận.");
+            var req = new CaroShared.Contracts.NewGameRequest
+            {
+                RoomId   = _roomId,
+                PlayerId = CaroClient.Network.NetworkClient.Instance.CurrentNickname
+            };
+            var msg = new CaroShared.Protocol.NetworkMessage(
+                CaroShared.Enums.MessageType.NewGameRequest, req);
+            _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
         }
 
         private void pictureBox1_Click(object sender, EventArgs e) { }
@@ -277,5 +422,69 @@ namespace CaroClient
         private void label3_Click(object sender, EventArgs e) { }
         private void label3_Click_1(object sender, EventArgs e) { }
         private void label9_Click(object sender, EventArgs e) { }
+
+        private void HandleMoveMade(CaroShared.Contracts.MoveMadeEventDto dto)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => HandleMoveMade(dto)));
+                return;
+            }
+            
+            if (dto.IsValid)
+            {
+                int symbol = (dto.PlayerId == CaroClient.Network.NetworkClient.Instance.CurrentNickname) 
+                    ? _mySymbol 
+                    : (3 - _mySymbol);
+                
+                _board[dto.Y][dto.X] = symbol;
+                _cells[dto.Y, dto.X].Text = symbol == 1 ? "X" : "O";
+                _cells[dto.Y, dto.X].ForeColor = symbol == 1 ? Color.DarkBlue : Color.DarkRed;
+            }
+            
+            // Update time, turn indicator here... (omitted for brevity unless needed)
+        }
+
+        private void HandleGameOver(CaroShared.Protocol.NetworkMessage msg)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => HandleGameOver(msg)));
+                return;
+            }
+            StopTurnTimer();
+            if (msg.Payload is System.Text.Json.JsonElement element)
+            {
+                var dto = element.Deserialize<CaroShared.Contracts.MoveMadeEventDto>(new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (dto != null)
+                {
+                    if (dto.IsValid)
+                    {
+                        int symbol = (dto.PlayerId == CaroClient.Network.NetworkClient.Instance.CurrentNickname) 
+                            ? _mySymbol 
+                            : (3 - _mySymbol);
+                        
+                        _board[dto.Y][dto.X] = symbol;
+                        _cells[dto.Y, dto.X].Text = symbol == 1 ? "X" : "O";
+                        _cells[dto.Y, dto.X].ForeColor = symbol == 1 ? Color.DarkBlue : Color.DarkRed;
+                    }
+                    MessageBox.Show(dto.ErrorMessage, "Game Over", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+        }
+
+        private void HandleMessageReceived(CaroShared.Protocol.NetworkMessage msg)
+        {
+            if (msg.Type == CaroShared.Enums.MessageType.NewGameEvent)
+            {
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new Action(() => HandleMessageReceived(msg)));
+                    return;
+                }
+                ResetBoard();
+                MessageBox.Show("Ván mới đã bắt đầu!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
     }
 }
