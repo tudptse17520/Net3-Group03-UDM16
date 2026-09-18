@@ -34,6 +34,12 @@ namespace CaroClient.Network
         public event Action<GameStateDto>? OnGameStateRestored;
         public event Action<List<string>>? OnPlayerListReceived;
         public event Action? OnDisconnected;
+        public event Action<CaroShared.Contracts.ChallengeResponse>? OnChallengeResponse;
+        public event Action<CaroShared.Contracts.ChallengeRequest>? OnChallengeRequest;
+        public event Action<CaroShared.Contracts.JoinSpectatorResponse>? OnSpectatorJoined;
+        public event Action<CaroShared.Contracts.MoveMadeEventDto>? OnMoveMade;
+        public event Action<CaroShared.Protocol.NetworkMessage>? OnGameOver;
+        public event Action<CaroShared.Protocol.NetworkMessage>? OnMessageReceived;
 
         private NetworkClient() { }
 
@@ -172,9 +178,58 @@ namespace CaroClient.Network
                 case MessageType.PlayerListResponse:
                     ParseAndNotifyPlayerList(message);
                     break;
+                    
+                case MessageType.ChallengeRequest:
+                    if (message.Payload is JsonElement reqElement)
+                    {
+                        var chalReq = reqElement.Deserialize<CaroShared.Contracts.ChallengeRequest>(JsonOptions);
+                        if (chalReq != null)
+                        {
+                            OnChallengeRequest?.Invoke(chalReq);
+                        }
+                    }
+                    break;
+                    
+                case MessageType.JoinSpectatorResponse:
+                    if (message.Payload is JsonElement specRespElement)
+                    {
+                        var specResp = specRespElement.Deserialize<CaroShared.Contracts.JoinSpectatorResponse>(JsonOptions);
+                        if (specResp != null)
+                        {
+                            OnSpectatorJoined?.Invoke(specResp);
+                        }
+                    }
+                    break;
+
+                case MessageType.ChallengeResponse:
+                    if (message.Payload is JsonElement respElement)
+                    {
+                        var chalResp = respElement.Deserialize<CaroShared.Contracts.ChallengeResponse>(JsonOptions);
+                        if (chalResp != null)
+                        {
+                            OnChallengeResponse?.Invoke(chalResp);
+                        }
+                    }
+                    break;
+                    
+                case MessageType.MoveMadeEvent:
+                    if (message.Payload is JsonElement moveElement)
+                    {
+                        var moveDto = moveElement.Deserialize<CaroShared.Contracts.MoveMadeEventDto>(JsonOptions);
+                        if (moveDto != null)
+                        {
+                            OnMoveMade?.Invoke(moveDto);
+                        }
+                    }
+                    break;
+                    
+                case MessageType.GameOverEvent:
+                    OnGameOver?.Invoke(message);
+                    break;
 
                 default:
                     Console.WriteLine($"[NetworkClient] Unhandled message type: {message.Type}");
+                    OnMessageReceived?.Invoke(message);
                     break;
             }
         }

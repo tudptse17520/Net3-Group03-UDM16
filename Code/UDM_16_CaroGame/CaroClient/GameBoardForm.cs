@@ -1,5 +1,6 @@
 using CaroShared.Constants;
 using CaroShared.Contracts;
+using System.Text.Json;
 
 namespace CaroClient
 {
@@ -13,6 +14,7 @@ namespace CaroClient
         // 0 = trống | 1 = X (Player 1) | 2 = O (Player 2)
         private int[][] _board = CreateJaggedBoard();
         private string _roomId = string.Empty;
+        private int _mySymbol = 1; // 1 = X, 2 = O
 
         // ── Spectator ─────────────────────────────────────────────────────
         private bool _isSpectator = false;
@@ -47,6 +49,25 @@ namespace CaroClient
             CaroClient.Network.NetworkClient.Instance.OnGameOver += HandleGameOver;
             // Listen for NewGameEvent
             CaroClient.Network.NetworkClient.Instance.OnMessageReceived += HandleMessageReceived;
+        }
+
+        // ── Constructor cho Player ────────────────────────────────────────
+        public GameBoardForm(string roomId, int mySymbol, string opponentName) : this()
+        {
+            _roomId = roomId;
+            _mySymbol = mySymbol;
+
+            string myName = CaroClient.Network.NetworkClient.Instance.CurrentNickname;
+            if (mySymbol == 1)
+            {
+                lblPlayer1Name.Text = myName;
+                lblPlayer2Name.Text = opponentName;
+            }
+            else
+            {
+                lblPlayer1Name.Text = opponentName;
+                lblPlayer2Name.Text = myName;
+            }
         }
 
         // ── Constructor Spectator ─────────────────────────────────────────
@@ -409,10 +430,18 @@ namespace CaroClient
                 this.Invoke(new Action(() => HandleMoveMade(dto)));
                 return;
             }
-            if (dto.Board != null)
+            
+            if (dto.IsValid)
             {
-                UpdateBoard(dto.Board);
+                int symbol = (dto.PlayerId == CaroClient.Network.NetworkClient.Instance.CurrentNickname) 
+                    ? _mySymbol 
+                    : (3 - _mySymbol);
+                
+                _board[dto.Y][dto.X] = symbol;
+                _cells[dto.Y, dto.X].Text = symbol == 1 ? "X" : "O";
+                _cells[dto.Y, dto.X].ForeColor = symbol == 1 ? Color.DarkBlue : Color.DarkRed;
             }
+            
             // Update time, turn indicator here... (omitted for brevity unless needed)
         }
 
@@ -429,8 +458,17 @@ namespace CaroClient
                 var dto = element.Deserialize<CaroShared.Contracts.MoveMadeEventDto>(new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (dto != null)
                 {
-                    if (dto.Board != null) UpdateBoard(dto.Board);
-                    MessageBox.Show(dto.Message, "Game Over", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (dto.IsValid)
+                    {
+                        int symbol = (dto.PlayerId == CaroClient.Network.NetworkClient.Instance.CurrentNickname) 
+                            ? _mySymbol 
+                            : (3 - _mySymbol);
+                        
+                        _board[dto.Y][dto.X] = symbol;
+                        _cells[dto.Y, dto.X].Text = symbol == 1 ? "X" : "O";
+                        _cells[dto.Y, dto.X].ForeColor = symbol == 1 ? Color.DarkBlue : Color.DarkRed;
+                    }
+                    MessageBox.Show(dto.ErrorMessage, "Game Over", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
         }
