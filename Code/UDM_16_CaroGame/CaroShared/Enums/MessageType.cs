@@ -32,6 +32,8 @@ namespace CaroShared.Enums
         // 5. Khán giả (Spectator)
         JoinSpectatorRequest,
         JoinSpectatorResponse,
+        RoomListRequest,
+        RoomListResponse,
 
         // 6. Lịch sử đấu
         MatchHistoryRequest,

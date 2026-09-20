@@ -39,6 +39,7 @@ namespace CaroClient
             CaroClient.Network.NetworkClient.Instance.OnChallengeReceived += OnChallengeReceivedHandler;
             CaroClient.Network.NetworkClient.Instance.OnChallengeResponseReceived += OnChallengeResponseReceivedHandler;
             CaroClient.Network.NetworkClient.Instance.OnSpectatorJoined += HandleSpectatorJoined;
+            CaroClient.Network.NetworkClient.Instance.OnRoomListReceived += OnRoomListReceivedHandler;
             this.FormClosing += LobbyForm_FormClosing;
             
             // Đăng ký sự kiện DoubleClick cho danh sách người chơi để gửi lời mời thách đấu
@@ -66,6 +67,7 @@ namespace CaroClient
                 ? PlayerName.Trim() 
                 : CaroClient.Network.NetworkClient.Instance.CurrentNickname.Trim();
 
+            int otherCount = 0;
             foreach (var name in playerNames)
             {
                 if (string.Equals(name.Trim(), myNick, StringComparison.OrdinalIgnoreCase))
@@ -75,10 +77,11 @@ namespace CaroClient
                 else
                 {
                     LstPlayers.Items.Add($"👤 {name}");
+                    otherCount++;
                 }
             }
 
-            LblPlayers.Text = $"Người chơi online ({playerNames.Count}):";
+            LblPlayers.Text = $"Người chơi online ({playerNames.Count}) — Thách đấu: {otherCount}";
         }
 
         // Xử lý khi nhận được lời mời thách đấu từ người chơi khác
@@ -190,6 +193,7 @@ namespace CaroClient
             CaroClient.Network.NetworkClient.Instance.OnChallengeReceived -= OnChallengeReceivedHandler;
             CaroClient.Network.NetworkClient.Instance.OnChallengeResponseReceived -= OnChallengeResponseReceivedHandler;
             CaroClient.Network.NetworkClient.Instance.OnSpectatorJoined -= HandleSpectatorJoined;
+            CaroClient.Network.NetworkClient.Instance.OnRoomListReceived -= OnRoomListReceivedHandler;
             CaroClient.Network.NetworkClient.Instance.Disconnect();
         }
 
@@ -236,6 +240,30 @@ namespace CaroClient
             }
         }
 
+
+        // Xử lý khi nhận danh sách phòng đang chơi từ Server
+        private void OnRoomListReceivedHandler(System.Collections.Generic.List<CaroShared.Contracts.RoomDto> rooms)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => OnRoomListReceivedHandler(rooms)));
+                return;
+            }
+
+            LstRooms.Items.Clear();
+            if (rooms.Count == 0)
+            {
+                LstRooms.Items.Add("(Chưa có phòng nào đang chơi)");
+            }
+            else
+            {
+                foreach (var room in rooms)
+                {
+                    LstRooms.Items.Add($"{room.RoomId} | {room.PlayerX} vs {room.PlayerO} | 👁️ {room.SpectatorCount}");
+                }
+            }
+            LblRoomList.Text = $"Phòng đang chơi ({rooms.Count}):";
+        }
 
         // Khắc phục cảnh báo CS8622: Thêm dấu ? cho object? sender
         private void Button_Paint(object? sender, PaintEventArgs e)
@@ -295,32 +323,43 @@ namespace CaroClient
 
             if (LstRooms.SelectedItem != null && string.IsNullOrEmpty(roomCode))
             {
-                roomCode = LstRooms.SelectedItem.ToString() ?? string.Empty;
+                string selected = LstRooms.SelectedItem.ToString() ?? string.Empty;
+                // Parse RoomId từ format "ROOM-XXXXXX | PlayerX vs PlayerO | ..."
+                if (selected.Contains(" | "))
+                    roomCode = selected.Split(" | ")[0].Trim();
+                else
+                    roomCode = selected;
             }
 
-            if (string.IsNullOrEmpty(roomCode))
+            if (string.IsNullOrEmpty(roomCode) || roomCode.StartsWith("("))
             {
-                MessageBox.Show("Vui lòng chọn hoặc nhập mã phòng!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Vui lòng chọn phòng đang chơi hoặc nhập mã phòng!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            MessageBox.Show($"Đang tham gia phòng: {roomCode}", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            // Gửi JoinSpectatorRequest để vào xem phòng đang chơi
+            var request = new CaroShared.Contracts.JoinSpectatorRequest { RoomId = roomCode };
+            var msg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.JoinSpectatorRequest, request);
+            _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
         }
 
         private void BtnCreateRoom_Click(object sender, EventArgs e)
         {
-            MessageBox.Show("Đang tạo phòng mới...", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(
+                "Để bắt đầu trận đấu, hãy chọn người chơi trong danh sách và nhấn THÁCH ĐẤU.\n" +
+                "Phòng sẽ được tạo tự động khi đối thủ chấp nhận.",
+                "Hướng dẫn", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private async void BtnRefresh_Click(object sender, EventArgs e)
         {
-            // TODO: Sẽ request danh sách khi Server hỗ trợ PlayerListRequest
+            // Gửi request lấy danh sách người chơi online
+            var plrMsg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.PlayerListRequest, null);
+            await CaroClient.Network.NetworkClient.Instance.SendMessageAsync(plrMsg);
 
-            // Cập nhật danh sách phòng mẫu
-            LstRooms.Items.Clear();
-            LstRooms.Items.Add("Phòng 101 (1/2)");
-            LstRooms.Items.Add("Phòng 102 (Đang chơi)");
-            LstRooms.Items.Add("Phòng 103 (1/2)");
+            // Gửi request lấy danh sách phòng đang chơi
+            var roomMsg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.RoomListRequest, null);
+            await CaroClient.Network.NetworkClient.Instance.SendMessageAsync(roomMsg);
         }
 
         private void BtnLogout_Click(object sender, EventArgs e)

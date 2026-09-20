@@ -6,6 +6,8 @@ using CaroServer.Core;
 using CaroServer.Managers;
 using CaroServer.Data;
 using CaroServer.Repositories;
+using CaroServer.Heartbeat;
+using CaroShared.Protocol;
 
 namespace CaroServer
 {
@@ -54,6 +56,31 @@ namespace CaroServer
             var eventBroadcaster = new EventBroadcaster(sessionManager, roomManager);
             var tcpServer = new TcpServerManager(sessionManager, roomManager, lobbyManager, matchRepo, eventBroadcaster, port);
 
+            // Khởi tạo HeartbeatManager để phát hiện client zombie/mất kết nối
+            var heartbeat = new HeartbeatManager(
+                pingInterval: TimeSpan.FromSeconds(15),
+                timeout: TimeSpan.FromSeconds(45),
+                sendMessageAsync: async (clientId, msg) =>
+                {
+                    var session = sessionManager.GetSession(clientId);
+                    if (session != null)
+                        await session.SendMessageAsync(msg);
+                },
+                disconnectAsync: async (clientId) =>
+                {
+                    var session = sessionManager.GetSession(clientId);
+                    if (session != null)
+                    {
+                        Console.WriteLine($"[Heartbeat] Client {clientId} timed out, disconnecting...");
+                        session.Dispose();
+                    }
+                    await Task.CompletedTask;
+                }
+            );
+            tcpServer.SetHeartbeatManager(heartbeat);
+            heartbeat.Start();
+            Console.WriteLine("[Heartbeat] HeartbeatManager started (Ping=15s, Timeout=45s).");
+
             // Bắt đầu Server lắng nghe TCP
             Task serverTask = tcpServer.StartListeningAsync();
 
@@ -61,6 +88,7 @@ namespace CaroServer
             Console.ReadLine();
 
             // Dọn dẹp trước khi tắt
+            await heartbeat.DisposeAsync();
             tcpServer.Stop();
         }
     }
