@@ -28,7 +28,6 @@ namespace CaroClient
 
             // Đăng ký sự kiện vẽ bo góc
             BtnJoinRoom.Paint += Button_Paint;
-            BtnCreateRoom.Paint += Button_Paint;
             BtnRefresh.Paint += Button_Paint;
             BtnLogout.Paint += Button_Paint;
             BtnChallenge.Paint += Button_Paint;
@@ -341,14 +340,6 @@ namespace CaroClient
             var request = new CaroShared.Contracts.JoinSpectatorRequest { RoomId = roomCode };
             var msg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.JoinSpectatorRequest, request);
             _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
-        }
-
-        private void BtnCreateRoom_Click(object sender, EventArgs e)
-        {
-            MessageBox.Show(
-                "Để bắt đầu trận đấu, hãy chọn người chơi trong danh sách và nhấn THÁCH ĐẤU.\n" +
-                "Phòng sẽ được tạo tự động khi đối thủ chấp nhận.",
-                "Hướng dẫn", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private async void BtnRefresh_Click(object sender, EventArgs e)

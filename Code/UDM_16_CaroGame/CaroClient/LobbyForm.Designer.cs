@@ -29,7 +29,6 @@ namespace CaroClient
             LblRoomCode = new Label();
             TxtRoomCode = new TextBox();
             BtnJoinRoom = new Button();
-            BtnCreateRoom = new Button();
             BtnRefresh = new Button();
             BtnLogout = new Button();
             BtnMatchHistory = new Button();
@@ -145,20 +144,6 @@ namespace CaroClient
             BtnJoinRoom.UseVisualStyleBackColor = false;
             BtnJoinRoom.Click += BtnJoinRoom_Click;
 
-            // BtnCreateRoom
-            BtnCreateRoom.BackColor = ColorTranslator.FromHtml("#5C3A21");
-            BtnCreateRoom.Cursor = Cursors.Hand;
-            BtnCreateRoom.FlatAppearance.BorderSize = 0;
-            BtnCreateRoom.FlatStyle = FlatStyle.Flat;
-            BtnCreateRoom.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
-            BtnCreateRoom.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
-            BtnCreateRoom.Location = new Point(580, 205);
-            BtnCreateRoom.Name = "BtnCreateRoom";
-            BtnCreateRoom.Size = new Size(170, 35);
-            BtnCreateRoom.Text = "TẠO PHÒNG MỚI";
-            BtnCreateRoom.UseVisualStyleBackColor = false;
-            BtnCreateRoom.Click += BtnCreateRoom_Click;
-
             // BtnRefresh
             BtnRefresh.BackColor = ColorTranslator.FromHtml("#5C3A21");
             BtnRefresh.Cursor = Cursors.Hand;
@@ -180,7 +165,7 @@ namespace CaroClient
             BtnLogout.FlatStyle = FlatStyle.Flat;
             BtnLogout.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             BtnLogout.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
-            BtnLogout.Location = new Point(580, 305);
+            BtnLogout.Location = new Point(580, 355);
             BtnLogout.Name = "BtnLogout";
             BtnLogout.Size = new Size(170, 35);
             BtnLogout.Text = "ĐĂNG XUẤT";
@@ -194,7 +179,7 @@ namespace CaroClient
             BtnMatchHistory.FlatStyle = FlatStyle.Flat;
             BtnMatchHistory.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             BtnMatchHistory.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
-            BtnMatchHistory.Location = new Point(580, 355);
+            BtnMatchHistory.Location = new Point(580, 305);
             BtnMatchHistory.Name = "BtnMatchHistory";
             BtnMatchHistory.Size = new Size(170, 35);
             BtnMatchHistory.Text = "LỊCH SỬ ĐẤU";
@@ -216,7 +201,6 @@ namespace CaroClient
             Controls.Add(LblRoomCode);
             Controls.Add(TxtRoomCode);
             Controls.Add(BtnJoinRoom);
-            Controls.Add(BtnCreateRoom);
             Controls.Add(BtnRefresh);
             Controls.Add(BtnLogout);
             Controls.Add(BtnMatchHistory);
@@ -241,7 +225,6 @@ namespace CaroClient
         private Label LblRoomCode;
         private TextBox TxtRoomCode;
         private Button BtnJoinRoom;
-        private Button BtnCreateRoom;
         private Button BtnRefresh;
         private Button BtnLogout;
         private Button BtnMatchHistory;
