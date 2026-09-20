@@ -151,7 +151,7 @@ namespace CaroClient
             BtnRefresh.FlatStyle = FlatStyle.Flat;
             BtnRefresh.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             BtnRefresh.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
-            BtnRefresh.Location = new Point(580, 255);
+            BtnRefresh.Location = new Point(580, 205);
             BtnRefresh.Name = "BtnRefresh";
             BtnRefresh.Size = new Size(170, 35);
             BtnRefresh.Text = "LÀM MỚI";
@@ -165,7 +165,7 @@ namespace CaroClient
             BtnLogout.FlatStyle = FlatStyle.Flat;
             BtnLogout.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             BtnLogout.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
-            BtnLogout.Location = new Point(580, 355);
+            BtnLogout.Location = new Point(580, 305);
             BtnLogout.Name = "BtnLogout";
             BtnLogout.Size = new Size(170, 35);
             BtnLogout.Text = "ĐĂNG XUẤT";
@@ -179,7 +179,7 @@ namespace CaroClient
             BtnMatchHistory.FlatStyle = FlatStyle.Flat;
             BtnMatchHistory.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             BtnMatchHistory.ForeColor = ColorTranslator.FromHtml("#FFE8A3");
-            BtnMatchHistory.Location = new Point(580, 305);
+            BtnMatchHistory.Location = new Point(580, 255);
             BtnMatchHistory.Name = "BtnMatchHistory";
             BtnMatchHistory.Size = new Size(170, 35);
             BtnMatchHistory.Text = "LỊCH SỬ ĐẤU";
