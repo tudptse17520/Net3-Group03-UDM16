@@ -11,5 +11,8 @@ namespace CaroShared.Contracts
 
         // Thông điệp thông báo
         public string Message { get; init; } = "Ván đấu mới đã bắt đầu!";
+
+        // Định danh ván đấu mới
+        public System.Guid MatchIdentity { get; init; }
     }
 }

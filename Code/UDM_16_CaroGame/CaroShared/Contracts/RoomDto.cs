@@ -6,11 +6,11 @@ namespace CaroShared.Contracts
         // ID phòng
         public string RoomId { get; init; } = string.Empty;
 
-        // Tên người cầm X
-        public string? PlayerX { get; init; }
+        // Thông tin người cầm X
+        public PlayerInfoDto? PlayerX { get; init; }
 
-        // Tên người cầm O
-        public string? PlayerO { get; init; }
+        // Thông tin người cầm O
+        public PlayerInfoDto? PlayerO { get; init; }
 
         // Số người xem
         public int SpectatorCount { get; init; }

@@ -16,6 +16,11 @@ namespace CaroServer.Models
         // Token dùng để xác thực khi Reconnect.
         public string SessionToken { get; private set; }
 
+        // Cá nhân hoá: Avatar
+        public int AvatarVersion { get; set; } = 0;
+        public byte[]? AvatarBytes { get; set; }
+        public readonly object AvatarLock = new object();
+
         // Phòng đang chơi (null nếu ở sảnh chờ)
         public string? CurrentRoomId { get; set; }
 

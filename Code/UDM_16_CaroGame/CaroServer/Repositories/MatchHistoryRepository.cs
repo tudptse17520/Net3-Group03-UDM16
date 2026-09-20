@@ -10,19 +10,20 @@ namespace CaroServer.Repositories
 {
     public class MatchHistoryRepository
     {
-        private readonly CaroDbContext _dbContext;
+        private readonly DbContextOptions<CaroDbContext> _dbOptions;
 
-        public MatchHistoryRepository(CaroDbContext dbContext)
+        public MatchHistoryRepository(DbContextOptions<CaroDbContext> dbOptions)
         {
-            _dbContext = dbContext;
+            _dbOptions = dbOptions;
         }
 
         public async Task SaveMatchAsync(MatchHistory match)
         {
             try
             {
-                await _dbContext.MatchHistories.AddAsync(match);
-                await _dbContext.SaveChangesAsync();
+                using var dbContext = new CaroDbContext(_dbOptions);
+                await dbContext.MatchHistories.AddAsync(match);
+                await dbContext.SaveChangesAsync();
                 Console.WriteLine($"[DB] Match saved for room {match.RoomId}.");
             }
             catch (Exception ex)
@@ -35,8 +36,10 @@ namespace CaroServer.Repositories
         {
             try
             {
-                // Sử dụng EF Core LINQ để truy vấn
-                return await _dbContext.MatchHistories
+                // Sử dụng EF Core LINQ để truy vấn với AsNoTracking để tối ưu hiệu suất đọc
+                using var dbContext = new CaroDbContext(_dbOptions);
+                return await dbContext.MatchHistories
+                    .AsNoTracking()
                     .Where(m => m.PlayerXId == playerId || m.PlayerOId == playerId)
                     .OrderByDescending(m => m.PlayedAt)
                     .ToListAsync();

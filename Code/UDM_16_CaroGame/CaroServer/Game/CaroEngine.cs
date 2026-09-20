@@ -31,6 +31,8 @@ namespace CaroServer.Game
         public string Status { get; private set; }
         public int MoveCount { get; private set; }
         public int WinnerSymbol { get; private set; }
+        
+        public bool IsGameOver => Status == "Finished";
 
         // Đảm bảo mỗi nước đi được xử lý trọn vẹn trước nước tiếp theo
         private readonly object _lockObj = new();
@@ -173,6 +175,37 @@ namespace CaroServer.Game
         }
 
         // Người chơi mất kết nối quá thời gian cho phép sẽ bị xử thua.
+        public MoveResult CompleteAsDraw()
+        {
+            lock (_lockObj)
+            {
+                if (Status != "Playing")
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Trận đấu đã kết thúc",
+                        IsGameOver = true,
+                        WinnerSymbol = WinnerSymbol
+                    };
+                }
+
+                Status = "Finished";
+                WinnerSymbol = 0; // 0 = Hòa
+
+                OnGameOver?.Invoke(WinnerSymbol, true);
+
+                return new MoveResult
+                {
+                    IsValid = true,
+                    IsGameOver = true,
+                    WinnerSymbol = 0,
+                    IsDraw = true,
+                    NextTurn = 0
+                };
+            }
+        }
+
         public MoveResult ForfeitPlayer(int playerSymbol, string reason)
         {
             lock (_lockObj)

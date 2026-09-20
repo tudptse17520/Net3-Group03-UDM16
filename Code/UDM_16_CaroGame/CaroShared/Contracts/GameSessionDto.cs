@@ -14,5 +14,8 @@ namespace CaroShared.Contracts
 
         // Thời gian còn lại của lượt này
         public int RemainingTimeSeconds { get; init; }
+
+        // Định danh ván đấu
+        public Guid MatchIdentity { get; init; }
     }
 }

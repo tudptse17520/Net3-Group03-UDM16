@@ -13,5 +13,6 @@ namespace CaroShared.Contracts
         public string RoomId { get; init; } = string.Empty;
         public int MySymbol { get; init; } // 1 cho X, 2 cho O
         public string OpponentName { get; init; } = string.Empty;
+        public System.Guid MatchIdentity { get; init; }
     }
 }

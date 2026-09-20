@@ -41,7 +41,7 @@ namespace CaroServer
                 Console.WriteLine("[DB] Running without database persistence.");
             }
 
-            var matchRepo = new MatchHistoryRepository(dbContext);
+            var matchRepo = new MatchHistoryRepository(optionsBuilder.Options);
 
             int port = CaroShared.Constants.NetworkConstants.DefaultPort;
             if (args.Length > 0 && int.TryParse(args[0], out int parsedPort))

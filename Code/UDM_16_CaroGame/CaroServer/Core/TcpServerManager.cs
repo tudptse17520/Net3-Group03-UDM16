@@ -54,36 +54,10 @@ namespace CaroServer.Core
             // Lắng nghe kết nối trên port được cấu hình
             _listener = new TcpListener(IPAddress.Any, port);
 
-            // Đăng ký xử lý khi phòng hết thời gian
+            // Đăng ký xử lý khi phòng hết thời gian (chuyển sang gọi CompleteGameAsync qua event hoặc trực tiếp)
             _roomManager.OnRoomTimeout += async (roomId, moveResult) =>
             {
-                // Gửi kết quả hết giờ cho tất cả người trong phòng
-                var responseDto = new MoveMadeEventDto
-                {
-                    RoomId = roomId,
-                    WinnerSymbol = moveResult.WinnerSymbol,
-                    IsValid = true,
-                    ErrorMessage = moveResult.ErrorMessage ?? "Hết thời gian lượt đánh"
-                };
-
-                var timeoutMsg = new NetworkMessage(MessageType.MoveMadeEvent, responseDto);
-                await _broadcaster.BroadcastToRoomAsync(roomId, timeoutMsg);
-
-                // Lưu lịch sử đấu sau khi kết thúc do timeout
-                var room = _roomManager.GetRoom(roomId);
-                if (room != null)
-                {
-                    var match = new MatchHistory
-                    {
-                        RoomId = roomId,
-                        PlayerXId = room.PlayerXId,
-                        PlayerOId = room.PlayerOId,
-                        WinnerSymbol = moveResult.WinnerSymbol,
-                        TotalMoves = room.Session.Engine.MoveCount,
-                        PlayedAt = DateTime.Now
-                    };
-                    _ = _matchRepo.SaveMatchAsync(match);
-                }
+                await CompleteGameAsync(roomId, moveResult);
             };
         }
 
@@ -312,8 +286,8 @@ namespace CaroServer.Core
                 Room = new RoomDto
                 {
                     RoomId = room.RoomId,
-                    PlayerX = room.PlayerXId,
-                    PlayerO = room.PlayerOId,
+                    PlayerX = CreatePlayerInfo(room.PlayerXId),
+                    PlayerO = CreatePlayerInfo(room.PlayerOId),
                     SpectatorCount = room.SpectatorCount
                 },
                 Session = room.Session.ToDto()
@@ -358,6 +332,28 @@ namespace CaroServer.Core
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return;
 
+            // Đảm bảo chỉ xử lý kết thúc game 1 lần duy nhất cho mỗi ván đấu (Match)
+            if (!room.Session.TryClaimCompletion()) return;
+
+            room.Session.StopTimer();
+            room.Session.ClearDrawOffer(); // Xóa trạng thái hòa khi ván kết thúc (bởi mọi lý do)
+
+            var match = new MatchHistory
+            {
+                RoomId = roomId,
+                PlayerXId = room.PlayerXId,
+                PlayerOId = room.PlayerOId,
+                WinnerSymbol = result.WinnerSymbol,
+                TotalMoves = room.Session.Engine.MoveCount,
+                PlayedAt = DateTime.Now
+            };
+            
+            // Lỗi save history đã được try-catch bên trong SaveMatchAsync,
+            // nên server không crash và không bị kẹt ở đây.
+            // Phải await lưu vào DB TRƯỚC KHI báo GameOverEvent cho Client, 
+            // để đảm bảo khi Client xin lịch sử, dữ liệu đã tồn tại.
+            await _matchRepo.SaveMatchAsync(match);
+
             var responseDto = new MoveMadeEventDto
             {
                 RoomId = roomId,
@@ -369,25 +365,6 @@ namespace CaroServer.Core
             await _broadcaster.BroadcastToRoomAsync(
                 roomId,
                 new NetworkMessage(MessageType.GameOverEvent, responseDto));
-
-            var match = new MatchHistory
-            {
-                RoomId = roomId,
-                PlayerXId = room.PlayerXId,
-                PlayerOId = room.PlayerOId,
-                WinnerSymbol = result.WinnerSymbol,
-                TotalMoves = room.Session.Engine.MoveCount,
-                PlayedAt = DateTime.Now
-            };
-            _ = _matchRepo.SaveMatchAsync(match);
-
-            foreach (var participantId in room.GetAllParticipantIds())
-            {
-                var participant = _sessionManager.GetSession(participantId);
-                if (participant != null) participant.CurrentRoomId = null;
-            }
-
-            _roomManager.RemoveRoom(roomId);
         }
 
         private async Task HandleIncomingMessage(PlayerSession senderSession, NetworkMessage message)
@@ -431,6 +408,24 @@ namespace CaroServer.Core
                 case MessageType.RoomListRequest:
                     await HandleRoomListRequestAsync(senderSession, message);
                     break;
+                
+                case MessageType.DrawOfferRequest:
+                    await HandleDrawOfferRequestAsync(senderSession, message);
+                    break;
+                case MessageType.DrawResponseRequest:
+                    await HandleDrawResponseRequestAsync(senderSession, message);
+                    break;
+                    
+                case MessageType.AvatarUpdateRequest:
+                    await HandleAvatarUpdateAsync(senderSession, message);
+                    break;
+                case MessageType.AvatarRemoveRequest:
+                    await HandleAvatarRemoveAsync(senderSession, message);
+                    break;
+                case MessageType.AvatarRequest:
+                    await HandleAvatarRequestAsync(senderSession, message);
+                    break;
+
                 default:
                     Console.WriteLine($"[TcpServer] Unhandled message type: {message.Type}");
                     break;
@@ -467,7 +462,7 @@ namespace CaroServer.Core
             // Gửi LoginResponse kèm danh sách online cho người vừa đăng nhập
             var playerList = new PlayerListResponse
             {
-                PlayerNames = _lobbyManager.GetOnlinePlayerNames(),
+                Players = GetOnlinePlayersInfo(),
                 SessionToken = session.SessionToken
             };
             var responseMsg = new NetworkMessage(MessageType.LoginResponse, playerList, message.RequestId);
@@ -479,7 +474,7 @@ namespace CaroServer.Core
 
         private async Task HandlePlayerListRequestAsync(PlayerSession session, NetworkMessage message)
         {
-            var playerList = new PlayerListResponse { PlayerNames = _lobbyManager.GetOnlinePlayerNames() };
+            var playerList = new PlayerListResponse { Players = GetOnlinePlayersInfo() };
             var responseMsg = new NetworkMessage(MessageType.PlayerListResponse, playerList, message.RequestId);
             await session.SendMessageAsync(responseMsg);
         }
@@ -487,17 +482,44 @@ namespace CaroServer.Core
         // Gửi PlayerListResponse cho tất cả Client đang online
         private async Task BroadcastPlayerListAsync()
         {
-            var playerList = new PlayerListResponse { PlayerNames = _lobbyManager.GetOnlinePlayerNames() };
+            var playerList = new PlayerListResponse { Players = GetOnlinePlayersInfo() };
             var broadcastMsg = new NetworkMessage(MessageType.PlayerListResponse, playerList);
 
-            foreach (var name in playerList.PlayerNames)
+            foreach (var info in playerList.Players)
             {
-                var s = _sessionManager.GetSession(name);
+                var s = _sessionManager.GetSession(info.PlayerName);
                 if (s != null)
                 {
                     await s.SendMessageAsync(broadcastMsg);
                 }
             }
+        }
+
+        private List<PlayerInfoDto> GetOnlinePlayersInfo()
+        {
+            var names = _lobbyManager.GetOnlinePlayerNames();
+            var list = new List<PlayerInfoDto>();
+            foreach (var name in names)
+            {
+                list.Add(CreatePlayerInfo(name));
+            }
+            return list;
+        }
+
+        private PlayerInfoDto CreatePlayerInfo(string? playerId)
+        {
+            if (string.IsNullOrEmpty(playerId)) return null!;
+            var s = _sessionManager.GetSession(playerId);
+            if (s != null)
+            {
+                return new PlayerInfoDto 
+                { 
+                    PlayerName = playerId, 
+                    HasAvatar = s.AvatarBytes != null, 
+                    AvatarVersion = s.AvatarVersion 
+                };
+            }
+            return new PlayerInfoDto { PlayerName = playerId };
         }
 
         private async Task HandleChallengeAsync(PlayerSession senderSession, NetworkMessage message)
@@ -543,13 +565,17 @@ namespace CaroServer.Core
                     await BroadcastPlayerListAsync();
 
                     // Gửi kết quả cho người mời (Challenger) — họ cầm X (1)
+                    var room = _roomManager.GetRoom(roomId);
+                    var matchId = room?.Session.MatchId ?? Guid.Empty;
+
                     var acceptForChallenger = new ChallengeResponse
                     {
                         ChallengerId = response.ChallengerId,
                         IsAccepted = true,
                         RoomId = roomId,
                         MySymbol = 1,
-                        OpponentName = senderSession.PlayerId
+                        OpponentName = senderSession.PlayerId,
+                        MatchIdentity = matchId
                     };
                     await challengerSession.SendMessageAsync(new NetworkMessage(MessageType.ChallengeResponse, acceptForChallenger, message.RequestId));
 
@@ -560,7 +586,8 @@ namespace CaroServer.Core
                         IsAccepted = true,
                         RoomId = roomId,
                         MySymbol = 2,
-                        OpponentName = challengerSession.PlayerId
+                        OpponentName = challengerSession.PlayerId,
+                        MatchIdentity = matchId
                     };
                     await senderSession.SendMessageAsync(new NetworkMessage(MessageType.ChallengeResponse, acceptForSender, message.RequestId));
                 }
@@ -589,10 +616,32 @@ namespace CaroServer.Core
                 return;
             }
 
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return;
+
             // Gọi GameEngine của Dev 2
             MoveResult result = _roomManager.HandleMove(roomId, senderSession.PlayerId, moveRequest.X, moveRequest.Y);
 
             Console.WriteLine($"[MakeMove] {senderSession.PlayerId} at ({moveRequest.X},{moveRequest.Y}): Valid={result.IsValid}");
+
+            // Nếu nước đi hợp lệ, Hủy đề nghị hòa đang chờ (nếu có)
+            if (result.IsValid && room.Session.PendingDrawOfferId.HasValue)
+            {
+                var cancelledOfferId = room.Session.PendingDrawOfferId.Value;
+                var matchId = room.Session.MatchId;
+                room.Session.ClearDrawOffer();
+                
+                var cancelDto = new DrawOfferResolvedDto
+                {
+                    RoomId = roomId,
+                    MatchIdentity = matchId,
+                    OfferIdentity = cancelledOfferId,
+                    Accepted = false,
+                    Cancelled = true,
+                    Message = "Đề nghị hòa đã bị hủy vì có nước cờ mới."
+                };
+                await _broadcaster.BroadcastToRoomAsync(roomId, new NetworkMessage(MessageType.DrawOfferResolvedEvent, cancelDto));
+            }
 
             // Broadcast kết quả cho tất cả người chơi và khán giả trong phòng
             var responseDto = new MoveMadeEventDto
@@ -609,24 +658,11 @@ namespace CaroServer.Core
             var resultMsg = new NetworkMessage(MessageType.MoveMadeEvent, responseDto);
             await _broadcaster.BroadcastToRoomAsync(roomId, resultMsg);
 
-            // Nếu game kết thúc, lưu lịch sử ván đấu vào DB (giữ Room để người chơi có thể chơi ván mới)
+            // Nếu game kết thúc, xử lý GameOver qua luồng tập trung
             if (result.IsGameOver)
             {
-                var room = _roomManager.GetRoom(roomId);
-                if (room != null)
-                {
-                    var match = new MatchHistory
-                    {
-                        RoomId = roomId,
-                        PlayerXId = room.PlayerXId,
-                        PlayerOId = room.PlayerOId,
-                        WinnerSymbol = result.WinnerSymbol,
-                        TotalMoves = room.Session.Engine.MoveCount,
-                        PlayedAt = DateTime.Now
-                    };
-                    // Chạy ngầm lưu DB không block luồng mạng
-                    _ = _matchRepo.SaveMatchAsync(match);
-                }
+                result.ErrorMessage = result.IsDraw ? "Hòa cờ!" : $"Người chơi {senderSession.PlayerId} đã chiến thắng!";
+                await CompleteGameAsync(roomId, result);
             }
         }
 
@@ -671,36 +707,26 @@ namespace CaroServer.Core
             var room = _roomManager.GetRoom(roomId);
             if (room == null || !room.IsPlayer(senderSession.PlayerId)) return;
 
-            // Xác định người thắng: Đối thủ của người đầu hàng thắng (1 = X, 2 = O)
-            int winnerSymbol = (senderSession.PlayerId == room.PlayerXId) ? 2 : 1;
-
-            // Dừng timer ván đấu
-            room.Session.StopTimer();
-
-            // Lưu kết quả vào DB
-            var match = new MatchHistory
+            int surrenderingSymbol = room.Session.GetPlayerSymbol(senderSession.PlayerId);
+            
+            // Xử lý đầu hàng qua Engine để cập nhật trạng thái "Finished" và lấy MoveResult chuẩn
+            var result = room.Session.Engine.ForfeitPlayer(surrenderingSymbol, $"Người chơi {senderSession.PlayerId} đã đầu hàng.");
+            if (result.IsValid)
             {
-                RoomId = roomId,
-                PlayerXId = room.PlayerXId,
-                PlayerOId = room.PlayerOId,
-                WinnerSymbol = winnerSymbol,
-                TotalMoves = room.Session.Engine.MoveCount,
-                PlayedAt = DateTime.Now
-            };
-            _ = _matchRepo.SaveMatchAsync(match);
-
-            // Broadcast GameOverEvent với payload MoveMadeEventDto để Client hiển thị popup
-            var gameOverDto = new MoveMadeEventDto
+                result.ErrorMessage = $"Người chơi {senderSession.PlayerId} đã đầu hàng.";
+                await CompleteGameAsync(roomId, result);
+            }
+            else
             {
-                RoomId = roomId,
-                PlayerId = senderSession.PlayerId,
-                WinnerSymbol = winnerSymbol,
-                IsValid = true,
-                ErrorMessage = $"Người chơi {senderSession.PlayerId} đã đầu hàng."
-            };
+                // Trận đấu đã kết thúc, người chơi gửi Surrender thực chất là rời phòng (Về Sảnh)
+                room.MarkPlayerDisconnected(senderSession.PlayerId);
+                senderSession.CurrentRoomId = null;
 
-            var gameOverMsg = new NetworkMessage(MessageType.GameOverEvent, gameOverDto, message.RequestId);
-            await _broadcaster.BroadcastToRoomAsync(roomId, gameOverMsg);
+                if (room.IsPlayerDisconnected(room.PlayerXId) && room.IsPlayerDisconnected(room.PlayerOId))
+                {
+                    _roomManager.RemoveRoom(roomId);
+                }
+            }
         }
 
         private async Task HandleNewGameAsync(PlayerSession senderSession, NetworkMessage message)
@@ -721,6 +747,7 @@ namespace CaroServer.Core
             var newGameDto = new NewGameEventDto
             {
                 RoomId = roomId,
+                MatchIdentity = room.Session.MatchId,
                 StartingTurn = 1,
                 Message = $"Ván mới đã bắt đầu do {senderSession.PlayerId} yêu cầu!"
             };
@@ -777,8 +804,8 @@ namespace CaroServer.Core
                 Room = new RoomDto
                 {
                     RoomId = room.RoomId,
-                    PlayerX = room.PlayerXId,
-                    PlayerO = room.PlayerOId,
+                    PlayerX = CreatePlayerInfo(room.PlayerXId),
+                    PlayerO = CreatePlayerInfo(room.PlayerOId),
                     SpectatorCount = room.SpectatorCount
                 },
                 Session = room.Session.ToDto()
@@ -797,9 +824,267 @@ namespace CaroServer.Core
         private async Task HandleRoomListRequestAsync(PlayerSession senderSession, NetworkMessage message)
         {
             var rooms = _roomManager.GetActiveRooms();
-            var response = new RoomListResponse { Rooms = rooms };
+            var dtos = new List<RoomDto>();
+            foreach (var r in rooms)
+            {
+                dtos.Add(new RoomDto
+                {
+                    RoomId = r.RoomId,
+                    PlayerX = CreatePlayerInfo(r.PlayerXId),
+                    PlayerO = CreatePlayerInfo(r.PlayerOId),
+                    SpectatorCount = r.SpectatorCount
+                });
+            }
+            var response = new RoomListResponse { Rooms = dtos };
             var responseMsg = new NetworkMessage(MessageType.RoomListResponse, response, message.RequestId);
             await senderSession.SendMessageAsync(responseMsg);
+        }
+
+        private async Task HandleDrawOfferRequestAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+            var jsonElement = (JsonElement)message.Payload!;
+            var request = jsonElement.Deserialize<DrawOfferRequestDto>(JsonOptions);
+            if (request == null) return;
+
+            var room = _roomManager.GetRoom(request.RoomId);
+            if (room == null || !room.IsPlayer(senderSession.PlayerId))
+            {
+                // Thông báo lỗi nếu không hợp lệ
+                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.DrawOfferResolvedEvent, new DrawOfferResolvedDto
+                {
+                    RoomId = request.RoomId,
+                    MatchIdentity = request.MatchIdentity,
+                    Accepted = false,
+                    Cancelled = true,
+                    Message = "Yêu cầu không hợp lệ."
+                }, message.RequestId));
+                return;
+            }
+
+            if (room.Session.MatchId != request.MatchIdentity)
+            {
+                // Lỗi stale match
+                return;
+            }
+
+            if (room.Session.Engine.IsGameOver)
+            {
+                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.DrawOfferResolvedEvent, new DrawOfferResolvedDto
+                {
+                    RoomId = request.RoomId,
+                    MatchIdentity = request.MatchIdentity,
+                    Accepted = false,
+                    Cancelled = true,
+                    Message = "Trận đấu đã kết thúc."
+                }, message.RequestId));
+                return;
+            }
+
+            string opponentId = senderSession.PlayerId == room.PlayerXId ? room.PlayerOId : room.PlayerXId;
+
+            if (room.Session.TrySetDrawOffer(senderSession.PlayerId, opponentId, out Guid offerId))
+            {
+                var eventDto = new DrawOfferEventDto
+                {
+                    RoomId = room.RoomId,
+                    MatchIdentity = room.Session.MatchId,
+                    OfferIdentity = offerId,
+                    OfferedByPlayerId = senderSession.PlayerId,
+                    OfferedByPlayerName = senderSession.PlayerId // Có thể lấy name thật nếu khác ID
+                };
+                
+                // Gửi event cho đối thủ
+                var opponentSession = _sessionManager.GetSession(opponentId);
+                if (opponentSession != null)
+                {
+                    await opponentSession.SendMessageAsync(new NetworkMessage(MessageType.DrawOfferEvent, eventDto));
+                }
+            }
+            else
+            {
+                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.DrawOfferResolvedEvent, new DrawOfferResolvedDto
+                {
+                    RoomId = request.RoomId,
+                    MatchIdentity = request.MatchIdentity,
+                    Accepted = false,
+                    Cancelled = true,
+                    Message = "Đang có lời mời hòa chờ xử lý hoặc bạn phải đánh thêm 1 nước cờ mới được mời tiếp."
+                }, message.RequestId));
+            }
+        }
+
+        private async Task HandleDrawResponseRequestAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+            var jsonElement = (JsonElement)message.Payload!;
+            var request = jsonElement.Deserialize<DrawResponseRequestDto>(JsonOptions);
+            if (request == null) return;
+
+            var room = _roomManager.GetRoom(request.RoomId);
+            if (room == null || !room.IsPlayer(senderSession.PlayerId)) return;
+
+            if (room.Session.MatchId != request.MatchIdentity) return;
+            if (room.Session.PendingDrawOfferId != request.OfferIdentity) return;
+            if (room.Session.PendingDrawOfferedTo != senderSession.PlayerId) return;
+
+            // Xóa offer
+            room.Session.ClearDrawOffer();
+
+            if (request.Accept)
+            {
+                // Dừng game với kết quả hòa (WinnerSymbol = 0)
+                var result = room.Session.Engine.CompleteAsDraw();
+                await CompleteGameAsync(room.RoomId, result);
+            }
+            else
+            {
+                // Thông báo từ chối cho cả hai
+                var resolvedDto = new DrawOfferResolvedDto
+                {
+                    RoomId = request.RoomId,
+                    MatchIdentity = request.MatchIdentity,
+                    OfferIdentity = request.OfferIdentity,
+                    Accepted = false,
+                    Cancelled = false,
+                    Message = $"Người chơi {senderSession.PlayerId} đã từ chối hòa."
+                };
+                await _broadcaster.BroadcastToRoomAsync(room.RoomId, new NetworkMessage(MessageType.DrawOfferResolvedEvent, resolvedDto));
+            }
+        }
+
+        private async Task HandleAvatarUpdateAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+            var jsonElement = (JsonElement)message.Payload!;
+            var request = jsonElement.Deserialize<AvatarUpdateRequest>(JsonOptions);
+            if (request == null || string.IsNullOrWhiteSpace(request.Base64Image)) return;
+
+            int newVersion;
+            try
+            {
+                byte[] bytes = Convert.FromBase64String(request.Base64Image);
+                if (bytes.Length > 262144) // 256KB max normalized limit
+                {
+                    await senderSession.SendMessageAsync(new NetworkMessage(MessageType.AvatarUpdateResponse, new AvatarUpdateResponse
+                    {
+                        Success = false,
+                        Message = "Avatar vượt quá dung lượng cho phép."
+                    }, message.RequestId));
+                    return;
+                }
+
+                lock (senderSession.AvatarLock)
+                {
+                    senderSession.AvatarBytes = bytes;
+                    senderSession.AvatarVersion++;
+                    newVersion = senderSession.AvatarVersion;
+                }
+
+                // Gửi response thành công
+                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.AvatarUpdateResponse, new AvatarUpdateResponse
+                {
+                    Success = true,
+                    AvatarVersion = newVersion
+                }, message.RequestId));
+
+                // Broadcast AvatarChangedEvent
+                await BroadcastAvatarChangedAsync(senderSession.PlayerId, newVersion, true);
+            }
+            catch (Exception ex)
+            {
+                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.AvatarUpdateResponse, new AvatarUpdateResponse
+                {
+                    Success = false,
+                    Message = "Lỗi xử lý hình ảnh."
+                }, message.RequestId));
+                Console.WriteLine($"[Avatar] Error: {ex.Message}");
+            }
+        }
+
+        private async Task HandleAvatarRemoveAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+            int newVersion;
+            lock (senderSession.AvatarLock)
+            {
+                senderSession.AvatarBytes = null;
+                senderSession.AvatarVersion++;
+                newVersion = senderSession.AvatarVersion;
+            }
+
+            await senderSession.SendMessageAsync(new NetworkMessage(MessageType.AvatarRemoveResponse, new AvatarRemoveResponse
+            {
+                Success = true,
+                AvatarVersion = newVersion
+            }, message.RequestId));
+
+            await BroadcastAvatarChangedAsync(senderSession.PlayerId, newVersion, false);
+        }
+
+        private async Task HandleAvatarRequestAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+            var jsonElement = (JsonElement)message.Payload!;
+            var request = jsonElement.Deserialize<AvatarRequest>(JsonOptions);
+            if (request == null || string.IsNullOrWhiteSpace(request.PlayerId)) return;
+
+            var targetSession = _sessionManager.GetSession(request.PlayerId);
+            if (targetSession != null)
+            {
+                byte[]? bytes;
+                int version;
+                lock (targetSession.AvatarLock)
+                {
+                    bytes = targetSession.AvatarBytes;
+                    version = targetSession.AvatarVersion;
+                }
+
+                if (bytes != null)
+                {
+                    var dataEvent = new AvatarDataEvent
+                    {
+                        PlayerId = targetSession.PlayerId,
+                        AvatarVersion = version,
+                        Base64Image = Convert.ToBase64String(bytes)
+                    };
+                    await senderSession.SendMessageAsync(new NetworkMessage(MessageType.AvatarDataEvent, dataEvent, message.RequestId));
+                }
+            }
+        }
+
+        private async Task BroadcastAvatarChangedAsync(string playerId, int version, bool hasAvatar)
+        {
+            var changeEvent = new AvatarChangedEvent
+            {
+                PlayerId = playerId,
+                AvatarVersion = version,
+                HasAvatar = hasAvatar
+            };
+            var msg = new NetworkMessage(MessageType.AvatarChangedEvent, changeEvent);
+
+            // Gửi cho tất cả những người đang online (trong lobby hoặc trong room)
+            var allNames = _lobbyManager.GetOnlinePlayerNames();
+            foreach (var name in allNames)
+            {
+                var s = _sessionManager.GetSession(name);
+                if (s != null)
+                {
+                    await s.SendMessageAsync(msg);
+                }
+            }
+            
+            // Xử lý gửi cho những người đang trong phòng (họ không còn ở lobby)
+            // Lấy danh sách session từ roomManager
+            var activeRooms = _roomManager.GetActiveRooms();
+            foreach (var r in activeRooms)
+            {
+                var px = _sessionManager.GetSession(r.PlayerXId);
+                var po = _sessionManager.GetSession(r.PlayerOId);
+                if (px != null && !allNames.Contains(px.PlayerId)) await px.SendMessageAsync(msg);
+                if (po != null && !allNames.Contains(po.PlayerId)) await po.SendMessageAsync(msg);
+                
+                foreach (var spec in r.GetSpectators())
+                {
+                    var ps = _sessionManager.GetSession(spec);
+                    if (ps != null && !allNames.Contains(ps.PlayerId)) await ps.SendMessageAsync(msg);
+                }
+            }
         }
 
         public void Stop()

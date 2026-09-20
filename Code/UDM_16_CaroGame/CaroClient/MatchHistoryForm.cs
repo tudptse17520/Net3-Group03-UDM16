@@ -7,13 +7,14 @@ using CaroShared.Contracts;
 using CaroShared.Enums;
 using CaroShared.Protocol;
 using CaroClient.Network;
-using System.Text.Json;
 
 namespace CaroClient
 {
     public partial class MatchHistoryForm : Form
     {
         private readonly string _playerName;
+        private bool _isLoading = false;
+        private readonly ToolTip _sharedToolTip = new ToolTip();
 
         public MatchHistoryForm(string playerName)
         {
@@ -22,24 +23,32 @@ namespace CaroClient
             this.DoubleBuffered = true;
 
             LblPlayerName.Text = $"Người chơi: {_playerName}";
-
-            // Đăng ký sự kiện vẽ bo góc cho buttons
-            BtnRefresh.Paint += Button_Paint;
-            BtnClose.Paint += Button_Paint;
+            _sharedToolTip.SetToolTip(LblPlayerName, $"Người chơi: {_playerName}");
 
             // Đăng ký sự kiện tô màu kết quả cho DataGridView
             DgvMatchHistory.CellFormatting += DgvMatchHistory_CellFormatting;
 
             // Đăng ký sự kiện nhận lịch sử đấu từ Server
             NetworkClient.Instance.OnMatchHistoryReceived += OnMatchHistoryReceivedHandler;
+            NetworkClient.Instance.OnError += OnErrorHandler;
+            NetworkClient.Instance.OnDisconnected += OnDisconnectedHandler;
             this.FormClosed += MatchHistoryForm_FormClosed;
 
-            LoadMatchHistory();
+            RefreshMatchHistoryAsync();
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var bgBrush = new SolidBrush(CaroTheme.Background);
+            e.Graphics.FillRectangle(bgBrush, e.ClipRectangle);
         }
 
         private void MatchHistoryForm_FormClosed(object? sender, FormClosedEventArgs e)
         {
             NetworkClient.Instance.OnMatchHistoryReceived -= OnMatchHistoryReceivedHandler;
+            NetworkClient.Instance.OnError -= OnErrorHandler;
+            NetworkClient.Instance.OnDisconnected -= OnDisconnectedHandler;
+            _sharedToolTip.Dispose();
         }
 
         private void OnMatchHistoryReceivedHandler(List<MatchDto> matches)
@@ -51,26 +60,72 @@ namespace CaroClient
             }
 
             PopulateDataGridView(matches);
-            UpdateStats(matches);
+            CalculateStatistics(matches);
+            ResetLoadingState();
+            
+            if (matches.Count == 0)
+            {
+                ToastNotification.Show(this, "Chưa có trận đấu nào.", ToastType.Info);
+            }
+        }
+
+        private void OnErrorHandler(Exception ex)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => OnErrorHandler(ex)));
+                return;
+            }
+            ResetLoadingState();
+        }
+
+        private void OnDisconnectedHandler()
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(OnDisconnectedHandler));
+                return;
+            }
+            ResetLoadingState();
         }
 
         // ============================
         // Load dữ liệu lịch sử
         // ============================
-        private void LoadMatchHistory()
+        private void RefreshMatchHistoryAsync()
         {
+            if (_isLoading) return;
+
             try
             {
+                _isLoading = true;
+                BtnRefresh.Text = "ĐANG TẢI...";
+                BtnRefresh.Enabled = false;
+
+                if (!NetworkClient.Instance.IsConnected)
+                {
+                    ResetLoadingState();
+                    CaroDialogForm.Show(this, "Không thể tải lịch sử trận đấu do mất kết nối.", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
                 var request = new MatchHistoryRequest { PlayerId = _playerName };
                 var message = new NetworkMessage(MessageType.MatchHistoryRequest, request);
                 _ = NetworkClient.Instance.SendMessageAsync(message);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Lỗi gửi yêu cầu lịch sử: {ex.Message}", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ResetLoadingState();
+                CaroDialogForm.Show(this, $"Lỗi gửi yêu cầu lịch sử: {ex.Message}", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
+        private void ResetLoadingState()
+        {
+            _isLoading = false;
+            BtnRefresh.Text = "LÀM MỚI";
+            BtnRefresh.Enabled = true;
+        }
 
         // ============================
         // Populate DataGridView
@@ -115,7 +170,7 @@ namespace CaroClient
 
                 // Format thời gian
                 string startTimeStr = match.PlayedAt.ToString("dd/MM/yyyy HH:mm");
-                string durationStr = $"{match.TotalMoves} nước đi";
+                string durationStr = $"{match.TotalMoves} nước";
 
                 DgvMatchHistory.Rows.Add(
                     (i + 1).ToString(),
@@ -126,20 +181,24 @@ namespace CaroClient
                     durationStr
                 );
             }
+
+            DgvMatchHistory.ClearSelection();
         }
 
-        // ============================
-        // Cập nhật panel thống kê
-        // ============================
-        private void UpdateStats(List<MatchDto> matches)
+        private void CalculateStatistics(List<MatchDto> matches)
         {
             int total = matches.Count;
             int wins = 0;
             int losses = 0;
+            int draws = 0;
 
             foreach (var match in matches)
             {
-                if (match.WinnerSymbol == 0) continue; // Hòa
+                if (match.WinnerSymbol == 0)
+                {
+                    draws++;
+                    continue; // Hòa
+                }
 
                 bool isX = string.Equals(match.PlayerXId, _playerName, StringComparison.OrdinalIgnoreCase);
                 
@@ -156,10 +215,11 @@ namespace CaroClient
             LblStatTotalValue.Text = total.ToString();
             LblStatWinValue.Text = wins.ToString();
             LblStatLossValue.Text = losses.ToString();
+            LblStatDrawValue.Text = draws.ToString();
         }
 
         // ============================
-        // Tô màu dòng theo kết quả
+        // Tô màu dòng theo phong cách Warm Beige / Restrained Semantic Accents
         // ============================
         private void DgvMatchHistory_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
         {
@@ -172,48 +232,38 @@ namespace CaroClient
 
             string result = resultCell.Value.ToString() ?? "";
 
-            if (result.Contains("Thắng"))
-            {
-                // Highlight nhẹ dòng thắng
-                row.DefaultCellStyle.ForeColor = ColorTranslator.FromHtml("#A7F3D0"); // xanh lá nhạt
-            }
-            else if (result.Contains("Thua"))
-            {
-                // Highlight nhẹ dòng thua
-                row.DefaultCellStyle.ForeColor = ColorTranslator.FromHtml("#FCA5A5"); // đỏ nhạt
-            }
-            else
-            {
-                row.DefaultCellStyle.ForeColor = ColorTranslator.FromHtml("#D1D5DB"); // xám nhạt
-            }
-
-            // Tô màu đậm hơn cho cột Kết quả
+            // Màu cột Kết quả
             if (e.ColumnIndex == DgvMatchHistory.Columns["ColResult"]!.Index)
             {
                 if (result.Contains("Thắng"))
                 {
-                    e.CellStyle!.ForeColor = ColorTranslator.FromHtml("#10B981");
+                    e.CellStyle!.ForeColor = Color.FromArgb(85, 107, 63); // Muted Forest
                     e.CellStyle.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
                 }
                 else if (result.Contains("Thua"))
                 {
-                    e.CellStyle!.ForeColor = ColorTranslator.FromHtml("#EF4444");
+                    e.CellStyle!.ForeColor = Color.FromArgb(147, 76, 61); // Muted Brick
+                    e.CellStyle.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+                }
+                else
+                {
+                    e.CellStyle!.ForeColor = CaroTheme.TextMuted;
                     e.CellStyle.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
                 }
             }
 
-            // Tô màu cho cột Quân cờ
+            // Màu cột Quân cờ
             if (e.ColumnIndex == DgvMatchHistory.Columns["ColPiece"]!.Index)
             {
                 string piece = e.Value?.ToString() ?? "";
                 if (piece == "X")
                 {
-                    e.CellStyle!.ForeColor = ColorTranslator.FromHtml("#60A5FA"); // xanh dương
+                    e.CellStyle!.ForeColor = CaroTheme.XPiece; // Dark Chocolate
                     e.CellStyle.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
                 }
                 else if (piece == "O")
                 {
-                    e.CellStyle!.ForeColor = ColorTranslator.FromHtml("#F87171"); // đỏ
+                    e.CellStyle!.ForeColor = CaroTheme.WoodFrame; // Warm Wood
                     e.CellStyle.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
                 }
             }
@@ -224,63 +274,12 @@ namespace CaroClient
         // ============================
         private void BtnRefresh_Click(object? sender, EventArgs e)
         {
-            LoadMatchHistory();
+            RefreshMatchHistoryAsync();
         }
 
         private void BtnClose_Click(object? sender, EventArgs e)
         {
             this.Close();
-        }
-
-        // ============================
-        // Vẽ bo góc cho buttons (giống LobbyForm)
-        // ============================
-        private void Button_Paint(object? sender, PaintEventArgs e)
-        {
-            if (sender is not Button btn) return;
-
-            int borderRadius = 8;
-            Rectangle rect = new Rectangle(0, 0, btn.Width - 1, btn.Height - 1);
-
-            using (GraphicsPath path = GetRoundedPath(rect, borderRadius))
-            {
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-
-                using (SolidBrush brush = new SolidBrush(btn.BackColor))
-                {
-                    e.Graphics.FillPath(brush, path);
-                }
-
-                using (Pen pen = new Pen(ColorTranslator.FromHtml("#E8C37B"), 1.5f))
-                {
-                    e.Graphics.DrawPath(pen, path);
-                }
-
-                TextRenderer.DrawText(
-                    e.Graphics,
-                    btn.Text,
-                    btn.Font,
-                    rect,
-                    btn.ForeColor,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
-                );
-
-                btn.Region = new Region(path);
-            }
-        }
-
-        private GraphicsPath GetRoundedPath(Rectangle rect, int radius)
-        {
-            GraphicsPath path = new GraphicsPath();
-            int diameter = radius * 2;
-
-            path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90);
-            path.AddArc(rect.Right - diameter, rect.Y, diameter, diameter, 270, 90);
-            path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
-            path.AddArc(rect.X, rect.Bottom - diameter, diameter, diameter, 90, 90);
-            path.CloseFigure();
-
-            return path;
         }
     }
 }

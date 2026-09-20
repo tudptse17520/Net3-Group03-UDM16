@@ -39,7 +39,22 @@ namespace CaroShared.Enums
         MatchHistoryRequest,
         MatchHistoryResponse,
 
-        // 7. Xử lý lỗi
+        // 7. Hoà (Draw)
+        DrawOfferRequest,
+        DrawOfferEvent,
+        DrawResponseRequest,
+        DrawOfferResolvedEvent,
+
+        // 8. Cá nhân hoá & Avatar
+        AvatarUpdateRequest,
+        AvatarUpdateResponse,
+        AvatarRemoveRequest,
+        AvatarRemoveResponse,
+        AvatarRequest,
+        AvatarDataEvent,
+        AvatarChangedEvent,
+
+        // 9. Xử lý lỗi
         ErrorResponse,
     }
 }

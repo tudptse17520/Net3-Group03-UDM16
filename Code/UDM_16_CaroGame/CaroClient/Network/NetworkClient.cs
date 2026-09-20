@@ -38,12 +38,13 @@ namespace CaroClient.Network
         public bool IsConnected => _isConnected && _tcpClient != null && _tcpClient.Connected;
         public string CurrentNickname { get; private set; } = string.Empty;
         public string SessionToken { get; private set; } = string.Empty;
+        public List<PlayerInfoDto> PlayerList { get; private set; } = new List<PlayerInfoDto>();
 
         // ── Events: Lobby / Login ──
         public event Action<bool, string>? OnConnectResult;
         public event Action<bool, ReconnectResponse>? OnReconnectResult;
         public event Action<GameStateDto>? OnGameStateRestored;
-        public event Action<List<string>>? OnPlayerListReceived;
+        public event Action<List<PlayerInfoDto>>? OnPlayerListReceived;
         public event Action<ChallengeRequest>? OnChallengeReceived;
         public event Action<ChallengeResponse>? OnChallengeResponseReceived;
         public event Action<List<MatchDto>>? OnMatchHistoryReceived;
@@ -52,8 +53,16 @@ namespace CaroClient.Network
         public event Action<List<RoomDto>>? OnRoomListReceived;
         public event Action<MoveMadeEventDto>? OnMoveMade;
         public event Action<NetworkMessage>? OnGameOver;
+        public event Action<DrawOfferEventDto>? OnDrawOfferReceived;
+        public event Action<DrawOfferResolvedDto>? OnDrawOfferResolved;
         public event Action<NetworkMessage>? OnMessageReceived;
         public event Action<Exception>? OnError;
+
+        // ── Events: Avatar ──
+        public event Action<AvatarUpdateResponse>? OnAvatarUpdateResponse;
+        public event Action<AvatarRemoveResponse>? OnAvatarRemoveResponse;
+        public event Action<AvatarDataEvent>? OnAvatarDataReceived;
+        public event Action<AvatarChangedEvent>? OnAvatarChanged;
 
         private NetworkClient() { }
 
@@ -191,7 +200,14 @@ namespace CaroClient.Network
 
                     foreach (string frame in frames)
                     {
-                        DispatchMessage(frame);
+                        try
+                        {
+                            DispatchMessage(frame);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[NetworkClient] Lỗi khi xử lý message: {ex.Message}");
+                        }
                     }
                 }
             }
@@ -243,6 +259,35 @@ namespace CaroClient.Network
                         }
                     }
                     break;
+                    
+                case MessageType.AvatarUpdateResponse:
+                    if (msg.Payload is JsonElement aurElement)
+                    {
+                        var aur = aurElement.Deserialize<AvatarUpdateResponse>(JsonOptions);
+                        if (aur != null) OnAvatarUpdateResponse?.Invoke(aur);
+                    }
+                    break;
+                case MessageType.AvatarRemoveResponse:
+                    if (msg.Payload is JsonElement arrElement)
+                    {
+                        var arr = arrElement.Deserialize<AvatarRemoveResponse>(JsonOptions);
+                        if (arr != null) OnAvatarRemoveResponse?.Invoke(arr);
+                    }
+                    break;
+                case MessageType.AvatarDataEvent:
+                    if (msg.Payload is JsonElement adeElement)
+                    {
+                        var ade = adeElement.Deserialize<AvatarDataEvent>(JsonOptions);
+                        if (ade != null) OnAvatarDataReceived?.Invoke(ade);
+                    }
+                    break;
+                case MessageType.AvatarChangedEvent:
+                    if (msg.Payload is JsonElement aceElement)
+                    {
+                        var ace = aceElement.Deserialize<AvatarChangedEvent>(JsonOptions);
+                        if (ace != null) OnAvatarChanged?.Invoke(ace);
+                    }
+                    break;
 
                 case MessageType.MatchHistoryResponse:
                     ParseAndNotifyMatchHistory(msg);
@@ -287,6 +332,28 @@ namespace CaroClient.Network
 
                 case MessageType.GameOverEvent:
                     OnGameOver?.Invoke(msg);
+                    break;
+
+                case MessageType.DrawOfferEvent:
+                    if (msg.Payload is JsonElement drawEventElement)
+                    {
+                        var drawEvent = drawEventElement.Deserialize<DrawOfferEventDto>(JsonOptions);
+                        if (drawEvent != null)
+                        {
+                            OnDrawOfferReceived?.Invoke(drawEvent);
+                        }
+                    }
+                    break;
+
+                case MessageType.DrawOfferResolvedEvent:
+                    if (msg.Payload is JsonElement resolvedElement)
+                    {
+                        var resolvedEvent = resolvedElement.Deserialize<DrawOfferResolvedDto>(JsonOptions);
+                        if (resolvedEvent != null)
+                        {
+                            OnDrawOfferResolved?.Invoke(resolvedEvent);
+                        }
+                    }
                     break;
 
                 // ── Catch-all ──
@@ -337,9 +404,10 @@ namespace CaroClient.Network
                     PropertyNameCaseInsensitive = true
                 };
                 var response = element.Deserialize<PlayerListResponse>(options);
-                if (response != null && response.PlayerNames != null)
+                if (response != null && response.Players != null)
                 {
-                    OnPlayerListReceived?.Invoke(response.PlayerNames);
+                    PlayerList = response.Players;
+                    OnPlayerListReceived?.Invoke(response.Players);
                 }
             }
         }
@@ -355,6 +423,24 @@ namespace CaroClient.Network
                     OnMatchHistoryReceived?.Invoke(response.Matches);
                 }
             }
+        }
+
+        // ── Avatar Methods ──
+        public Task SendAvatarUpdateAsync(string base64Image)
+        {
+            var request = new AvatarUpdateRequest { Base64Image = base64Image };
+            return SendMessageAsync(new NetworkMessage(MessageType.AvatarUpdateRequest, request));
+        }
+
+        public Task SendAvatarRemoveAsync()
+        {
+            return SendMessageAsync(new NetworkMessage(MessageType.AvatarRemoveRequest, new AvatarRemoveRequest()));
+        }
+
+        public Task SendAvatarRequestAsync(string targetPlayerId)
+        {
+            var request = new AvatarRequest { PlayerId = targetPlayerId };
+            return SendMessageAsync(new NetworkMessage(MessageType.AvatarRequest, request));
         }
 
         // ────────────────────────────────────────────
