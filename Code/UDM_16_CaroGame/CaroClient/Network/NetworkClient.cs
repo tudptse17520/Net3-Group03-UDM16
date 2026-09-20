@@ -49,6 +49,7 @@ namespace CaroClient.Network
         public event Action<List<MatchDto>>? OnMatchHistoryReceived;
         public event Action? OnDisconnected;
         public event Action<JoinSpectatorResponse>? OnSpectatorJoined;
+        public event Action<List<RoomDto>>? OnRoomListReceived;
         public event Action<MoveMadeEventDto>? OnMoveMade;
         public event Action<NetworkMessage>? OnGameOver;
         public event Action<NetworkMessage>? OnMessageReceived;
@@ -245,6 +246,15 @@ namespace CaroClient.Network
 
                 case MessageType.MatchHistoryResponse:
                     ParseAndNotifyMatchHistory(msg);
+                    break;
+
+                case MessageType.RoomListResponse:
+                    if (msg.Payload is JsonElement roomListElement)
+                    {
+                        var roomListResp = roomListElement.Deserialize<RoomListResponse>(JsonOptions);
+                        if (roomListResp != null)
+                            OnRoomListReceived?.Invoke(roomListResp.Rooms);
+                    }
                     break;
 
                 case MessageType.ChallengeRequest:

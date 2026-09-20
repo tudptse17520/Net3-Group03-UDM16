@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using CaroServer.Game;
+using CaroServer.Heartbeat;
 using CaroServer.Managers;
 using CaroServer.Models;
 using CaroShared.Constants;
@@ -25,7 +26,11 @@ namespace CaroServer.Core
         private readonly EventBroadcaster _broadcaster;
         private readonly LobbyManager _lobbyManager;
         private readonly MatchHistoryRepository _matchRepo;
+        private HeartbeatManager? _heartbeatManager;
         private bool _isRunning;
+
+        // Cho phép Program.cs inject HeartbeatManager sau khi khởi tạo
+        public void SetHeartbeatManager(HeartbeatManager hb) => _heartbeatManager = hb;
 
         // Dùng chung cho Serialize và Deserialize
         private static readonly JsonSerializerOptions JsonOptions = new()
@@ -141,6 +146,17 @@ namespace CaroServer.Core
                     catch (JsonException ex)
                     {
                         Console.WriteLine($"[TcpServer] Invalid JSON from {session.PlayerId}: {ex.Message}");
+                        try
+                        {
+                            var errorResp = new ErrorResponse
+                            {
+                                Code = ErrorCode.MalformedPayload,
+                                Message = "Tin nhắn JSON không hợp lệ."
+                            };
+                            await session.SendMessageAsync(
+                                new NetworkMessage(MessageType.ErrorResponse, errorResp));
+                        }
+                        catch { /* Ignore send failure */ }
                     }
                 }
             }
@@ -156,6 +172,7 @@ namespace CaroServer.Core
 
         private async Task HandleClientDisconnectedAsync(PlayerSession session)
         {
+            _heartbeatManager?.MarkDisconnected(session.PlayerId);
             // Chỉ xử lý connection hiện tại. Nếu session cũ đã bị thay bằng
             // connection Reconnect mới thì không được xóa connection mới.
             if (_sessionManager.GetSession(session.PlayerId) is not PlayerSession current ||
@@ -384,7 +401,7 @@ namespace CaroServer.Core
                     await HandleReconnectAsync(senderSession, message);
                     break;
                 case MessageType.Pong:
-                    // Pong chỉ là heartbeat; không cần phản hồi thêm.
+                    _heartbeatManager?.ReceivePong(senderSession.PlayerId);
                     break;
                 case MessageType.ChallengeRequest:
                     await HandleChallengeAsync(senderSession, message);
@@ -411,6 +428,9 @@ namespace CaroServer.Core
                 case MessageType.JoinSpectatorRequest:
                     await HandleJoinSpectatorAsync(senderSession, message);
                     break;
+                case MessageType.RoomListRequest:
+                    await HandleRoomListRequestAsync(senderSession, message);
+                    break;
                 default:
                     Console.WriteLine($"[TcpServer] Unhandled message type: {message.Type}");
                     break;
@@ -421,7 +441,17 @@ namespace CaroServer.Core
         {
             var nicknameElement = (JsonElement)message.Payload!;
             var nickname = nicknameElement.GetString();
-            if (string.IsNullOrWhiteSpace(nickname)) return;
+            if (string.IsNullOrWhiteSpace(nickname))
+            {
+                var errorResp = new ErrorResponse
+                {
+                    Code = ErrorCode.InvalidRequest,
+                    Message = "Nickname không được để trống."
+                };
+                await session.SendMessageAsync(
+                    new NetworkMessage(MessageType.ErrorResponse, errorResp, message.RequestId));
+                return;
+            }
 
             Console.WriteLine($"[Login] {session.PlayerId} logged in as {nickname}");
 
@@ -432,6 +462,7 @@ namespace CaroServer.Core
 
             // Thêm vào danh sách Lobby
             _lobbyManager.AddPlayer(nickname, nickname);
+            _heartbeatManager?.RegisterClient(nickname);
 
             // Gửi LoginResponse kèm danh sách online cho người vừa đăng nhập
             var playerList = new PlayerListResponse
@@ -760,6 +791,15 @@ namespace CaroServer.Core
             };
 
             await senderSession.SendMessageAsync(new NetworkMessage(MessageType.JoinSpectatorResponse, successResp, message.RequestId));
+        }
+
+        // Xử lý yêu cầu lấy danh sách phòng đang hoạt động
+        private async Task HandleRoomListRequestAsync(PlayerSession senderSession, NetworkMessage message)
+        {
+            var rooms = _roomManager.GetActiveRooms();
+            var response = new RoomListResponse { Rooms = rooms };
+            var responseMsg = new NetworkMessage(MessageType.RoomListResponse, response, message.RequestId);
+            await senderSession.SendMessageAsync(responseMsg);
         }
 
         public void Stop()

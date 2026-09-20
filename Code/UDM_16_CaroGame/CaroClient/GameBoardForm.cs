@@ -442,9 +442,33 @@ namespace CaroClient
                 _board[dto.Y][dto.X] = symbol;
                 _cells[dto.Y, dto.X].Text = symbol == 1 ? "X" : "O";
                 _cells[dto.Y, dto.X].ForeColor = symbol == 1 ? Color.DarkBlue : Color.DarkRed;
+
+                // Reset timer cho lượt tiếp theo
+                if (dto.WinnerSymbol == 0)
+                {
+                    StartTurnTimer(CaroShared.Constants.GameConstants.TurnTimeoutSeconds);
+                }
+                else
+                {
+                    StopTurnTimer();
+                }
+
+                // Cập nhật indicator lượt đánh
+                if (!_isSpectator)
+                {
+                    bool isMyTurn = (dto.PlayerId != CaroClient.Network.NetworkClient.Instance.CurrentNickname);
+                    if (_mySymbol == 1)
+                    {
+                        pnlPlayer1Turn.Text = isMyTurn ? "▶ Lượt của bạn" : "";
+                        pnlPlayer2Turn.Text = isMyTurn ? "" : "▶ Lượt đối thủ";
+                    }
+                    else
+                    {
+                        pnlPlayer1Turn.Text = isMyTurn ? "" : "▶ Lượt đối thủ";
+                        pnlPlayer2Turn.Text = isMyTurn ? "▶ Lượt của bạn" : "";
+                    }
+                }
             }
-            
-            // Update time, turn indicator here... (omitted for brevity unless needed)
         }
 
         private void HandleGameOver(CaroShared.Protocol.NetworkMessage msg)
@@ -460,7 +484,10 @@ namespace CaroClient
                 var dto = element.Deserialize<CaroShared.Contracts.MoveMadeEventDto>(new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (dto != null)
                 {
-                    if (dto.IsValid)
+                    // Chỉ cập nhật board nếu có nước đi thực (không phải timeout/surrender)
+                    if (dto.IsValid && !string.IsNullOrEmpty(dto.PlayerId)
+                        && dto.X >= 0 && dto.X < BoardSize && dto.Y >= 0 && dto.Y < BoardSize
+                        && _board[dto.Y][dto.X] == 0)
                     {
                         int symbol = (dto.PlayerId == CaroClient.Network.NetworkClient.Instance.CurrentNickname) 
                             ? _mySymbol 
@@ -470,7 +497,25 @@ namespace CaroClient
                         _cells[dto.Y, dto.X].Text = symbol == 1 ? "X" : "O";
                         _cells[dto.Y, dto.X].ForeColor = symbol == 1 ? Color.DarkBlue : Color.DarkRed;
                     }
-                    MessageBox.Show(dto.ErrorMessage, "Game Over", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    // Hiển thị kết quả ván đấu
+                    string resultText;
+                    if (_isSpectator)
+                    {
+                        resultText = dto.WinnerSymbol == 1 ? "X THẮNG!" : dto.WinnerSymbol == 2 ? "O THẮNG!" : "🤝 HÒA!";
+                    }
+                    else
+                    {
+                        resultText = dto.WinnerSymbol == _mySymbol
+                            ? "🎉 BẠN ĐÃ THẮNG!"
+                            : dto.WinnerSymbol == 0
+                                ? "🤝 HÒA!"
+                                : "😔 BẠN ĐÃ THUA!";
+                    }
+
+                    string detail = !string.IsNullOrEmpty(dto.ErrorMessage) ? $"\n{dto.ErrorMessage}" : "";
+                    MessageBox.Show($"{resultText}{detail}", "Kết thúc ván đấu",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
         }

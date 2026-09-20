@@ -508,6 +508,26 @@ namespace CaroServer.Managers
             return _rooms.Count;
         }
 
+        /// <summary>
+        /// Trả về danh sách tất cả phòng đang hoạt động dưới dạng RoomDto.
+        /// </summary>
+        public System.Collections.Generic.List<CaroShared.Contracts.RoomDto> GetActiveRooms()
+        {
+            var result = new System.Collections.Generic.List<CaroShared.Contracts.RoomDto>();
+            foreach (var kvp in _rooms)
+            {
+                var room = kvp.Value;
+                result.Add(new CaroShared.Contracts.RoomDto
+                {
+                    RoomId = room.RoomId,
+                    PlayerX = room.PlayerXId,
+                    PlayerO = room.PlayerOId,
+                    SpectatorCount = room.SpectatorCount
+                });
+            }
+            return result;
+        }
+
         private void StartTurnTimer(
             GameSession session,
             int playerSymbol,
