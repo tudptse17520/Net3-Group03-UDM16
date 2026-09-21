@@ -348,12 +348,7 @@ namespace CaroServer.Core
                 PlayedAt = DateTime.Now
             };
             
-            // Lỗi save history đã được try-catch bên trong SaveMatchAsync,
-            // nên server không crash và không bị kẹt ở đây.
-            // Phải await lưu vào DB TRƯỚC KHI báo GameOverEvent cho Client, 
-            // để đảm bảo khi Client xin lịch sử, dữ liệu đã tồn tại.
-            await _matchRepo.SaveMatchAsync(match);
-
+            // Construct the event before sending to DB so we don't delay the client
             var responseDto = new MoveMadeEventDto
             {
                 RoomId = roomId,
@@ -362,9 +357,23 @@ namespace CaroServer.Core
                 ErrorMessage = result.ErrorMessage ?? string.Empty
             };
 
+            // BROADCAST IMMEDIATELY to avoid latency locking Phase B on client
             await _broadcaster.BroadcastToRoomAsync(
                 roomId,
                 new NetworkMessage(MessageType.GameOverEvent, responseDto));
+
+            // Run persistence securely without blocking the broadcast flow
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _matchRepo.SaveMatchAsync(match);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[MatchHistory] Save failed for match in room {roomId}: {ex.Message}");
+                }
+            });
         }
 
         private async Task HandleIncomingMessage(PlayerSession senderSession, NetworkMessage message)
