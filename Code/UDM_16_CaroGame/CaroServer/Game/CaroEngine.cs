@@ -1,5 +1,6 @@
 using System;
 using CaroShared.Constants;
+using CaroShared.Enums;
 
 namespace CaroServer.Game
 {
@@ -8,6 +9,7 @@ namespace CaroServer.Game
     {
         public bool IsValid { get; set; }
         public string? ErrorMessage { get; set; }
+        public ErrorCode ErrorCode { get; set; }
         public int X { get; set; }
         public int Y { get; set; }
         // 1 = X, 2 = O
@@ -29,6 +31,8 @@ namespace CaroServer.Game
         public string Status { get; private set; }
         public int MoveCount { get; private set; }
         public int WinnerSymbol { get; private set; }
+        
+        public bool IsGameOver => Status == "Finished";
 
         // Đảm bảo mỗi nước đi được xử lý trọn vẹn trước nước tiếp theo
         private readonly object _lockObj = new();
@@ -65,6 +69,7 @@ namespace CaroServer.Game
                     {
                         IsValid = false,
                         ErrorMessage = reason,
+                        ErrorCode = ErrorCode.GameAlreadyFinished,
                         X = x, Y = y, Player = player
                     };
                 }
@@ -77,6 +82,7 @@ namespace CaroServer.Game
                     {
                         IsValid = false,
                         ErrorMessage = reason,
+                        ErrorCode = ErrorCode.NotPlayerTurn,
                         X = x, Y = y, Player = player
                     };
                 }
@@ -90,6 +96,7 @@ namespace CaroServer.Game
                     {
                         IsValid = false,
                         ErrorMessage = reason,
+                        ErrorCode = ErrorCode.InvalidCoordinates,
                         X = x, Y = y, Player = player
                     };
                 }
@@ -102,6 +109,7 @@ namespace CaroServer.Game
                     {
                         IsValid = false,
                         ErrorMessage = reason,
+                        ErrorCode = ErrorCode.CellOccupied,
                         X = x, Y = y, Player = player
                     };
                 }
@@ -162,6 +170,129 @@ namespace CaroServer.Game
                     WinnerSymbol = 0,
                     IsDraw = false,
                     NextTurn = CurrentTurn
+                };
+            }
+        }
+
+        // Người chơi mất kết nối quá thời gian cho phép sẽ bị xử thua.
+        public MoveResult CompleteAsDraw()
+        {
+            lock (_lockObj)
+            {
+                if (Status != "Playing")
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Trận đấu đã kết thúc",
+                        IsGameOver = true,
+                        WinnerSymbol = WinnerSymbol
+                    };
+                }
+
+                Status = "Finished";
+                WinnerSymbol = 0; // 0 = Hòa
+
+                OnGameOver?.Invoke(WinnerSymbol, true);
+
+                return new MoveResult
+                {
+                    IsValid = true,
+                    IsGameOver = true,
+                    WinnerSymbol = 0,
+                    IsDraw = true,
+                    NextTurn = 0
+                };
+            }
+        }
+
+        public MoveResult ForfeitPlayer(int playerSymbol, string reason)
+        {
+            lock (_lockObj)
+            {
+                if (Status != "Playing")
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Trận đấu đã kết thúc",
+                        Player = playerSymbol,
+                        IsGameOver = true,
+                        WinnerSymbol = WinnerSymbol
+                    };
+                }
+
+                if (playerSymbol != 1 && playerSymbol != 2)
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Người chơi không hợp lệ",
+                        Player = playerSymbol
+                    };
+                }
+
+                Status = "Finished";
+                WinnerSymbol = playerSymbol == 1 ? 2 : 1;
+
+                OnGameOver?.Invoke(WinnerSymbol, false);
+
+                return new MoveResult
+                {
+                    IsValid = true,
+                    Player = playerSymbol,
+                    IsGameOver = true,
+                    WinnerSymbol = WinnerSymbol,
+                    IsDraw = false,
+                    ErrorMessage = reason,
+                    NextTurn = 0
+                };
+            }
+        }
+
+        public MoveResult HandleTimeout(int timedOutPlayer)
+        {
+            lock (_lockObj)
+            {
+                if (Status != "Playing")
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Trận đấu đã kết thúc",
+                        Player = timedOutPlayer,
+                        IsGameOver = true,
+                        WinnerSymbol = WinnerSymbol
+                    };
+                }
+
+                if (timedOutPlayer != CurrentTurn)
+                {
+                    return new MoveResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Lượt đấu đã thay đổi",
+                        Player = timedOutPlayer,
+                        IsGameOver = false,
+                        WinnerSymbol = WinnerSymbol,
+                        NextTurn = CurrentTurn
+                    };
+                }
+
+                Status = "Finished";
+                WinnerSymbol = (timedOutPlayer == 1) ? 2 : 1;
+
+                OnGameOver?.Invoke(WinnerSymbol, false);
+
+                return new MoveResult
+                {
+                    IsValid = true,
+                    Player = timedOutPlayer,
+                    IsGameOver = true,
+                    WinnerSymbol = WinnerSymbol,
+                    IsDraw = false,
+                    ErrorMessage = "Hết thời gian lượt đánh",
+                    NextTurn = 0
                 };
             }
         }

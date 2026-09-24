@@ -3,6 +3,8 @@ namespace CaroShared.Contracts
     public record MoveMadeEventDto
     {
         public string RoomId { get; init; } = string.Empty;
+        public Guid MatchIdentity { get; init; }
+        public GameTimingDto? Timing { get; init; }
         public string PlayerId { get; init; } = string.Empty;
         public int X { get; init; }
         public int Y { get; init; }

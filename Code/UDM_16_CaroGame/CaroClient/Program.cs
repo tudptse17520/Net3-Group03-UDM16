@@ -6,7 +6,8 @@ namespace CaroClient
         static void Main()
         {
             ApplicationConfiguration.Initialize();
-            Application.Run(new LoginForm());
+            using var context = new CaroApplicationContext();
+            Application.Run(context);
         }
     }
 }

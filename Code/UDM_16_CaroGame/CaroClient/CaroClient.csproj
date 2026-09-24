@@ -5,10 +5,20 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Caro</AssemblyName>
+    <Product>Caro</Product>
+    <Version>1.1.1</Version>
+    <Title>Caro</Title>
+    <ApplicationIcon>Assets\Branding\caro.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets\Branding\caro.ico" LogicalName="Caro.Icon" />
+    <EmbeddedResource Include="Assets\Audio\move.wav" LogicalName="Caro.MoveSound" />
+    <EmbeddedResource Include="Assets\Branding\caro-source.png" LogicalName="Caro.Image" />
+    <None Update="server-config.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <ProjectReference Include="..\CaroShared\CaroShared.csproj" />
   </ItemGroup>
 

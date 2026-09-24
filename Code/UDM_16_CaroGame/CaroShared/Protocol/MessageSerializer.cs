@@ -11,7 +11,8 @@ namespace CaroShared.Protocol
         {
             _options = options ?? new JsonSerializerOptions
             {
-                PropertyNameCaseInsensitive = true
+                PropertyNameCaseInsensitive = true,
+                Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
             };
         }
 
