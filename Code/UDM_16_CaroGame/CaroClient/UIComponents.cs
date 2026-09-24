@@ -28,7 +28,11 @@ namespace CaroClient
 
     public class BufferedCellButton : Button
     {
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public Action<PaintEventArgs>? Renderer { get; set; }
         public BufferedCellButton() => SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        protected override void OnPaintBackground(PaintEventArgs e) { if (Renderer == null) base.OnPaintBackground(e); }
+        protected override void OnPaint(PaintEventArgs e) { if (Renderer != null) Renderer(e); else base.OnPaint(e); }
     }
 
     /// <summary>
