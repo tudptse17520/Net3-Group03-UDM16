@@ -18,7 +18,7 @@ using CaroServer.Repositories;
 namespace CaroServer.Core
 {
     // Quản lý Server và các kết nối TCP
-    public class TcpServerManager
+    public partial class TcpServerManager
     {
         private readonly TcpListener _listener;
         private readonly SessionManager _sessionManager;
@@ -28,6 +28,7 @@ namespace CaroServer.Core
         private readonly MatchHistoryRepository _matchRepo;
         private HeartbeatManager? _heartbeatManager;
         private bool _isRunning;
+        private readonly SemaphoreSlim _presenceLock = new(1, 1);
 
         // Cho phép Program.cs inject HeartbeatManager sau khi khởi tạo
         public void SetHeartbeatManager(HeartbeatManager hb) => _heartbeatManager = hb;
@@ -67,7 +68,7 @@ namespace CaroServer.Core
             _listener.Start();
             _isRunning = true;
             var actualPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
-            Console.WriteLine($"[TcpServer] Server started on port {actualPort}");
+            Console.WriteLine($"[TcpServer] Listening on 0.0.0.0:{actualPort}");
 
             try
             {
@@ -144,9 +145,9 @@ namespace CaroServer.Core
             }
         }
 
-        private async Task HandleClientDisconnectedAsync(PlayerSession session)
+        private async Task HandleClientDisconnectedCoreAsync(PlayerSession session)
         {
-            _heartbeatManager?.MarkDisconnected(session.PlayerId);
+
             // Chỉ xử lý connection hiện tại. Nếu session cũ đã bị thay bằng
             // connection Reconnect mới thì không được xóa connection mới.
             if (_sessionManager.GetSession(session.PlayerId) is not PlayerSession current ||
@@ -156,11 +157,18 @@ namespace CaroServer.Core
                 return;
             }
 
+            if (session.IsAuthenticated) _heartbeatManager?.MarkDisconnected(session.PlayerId);
+            _lobbyManager.RemovePlayer(session.PlayerId);
             string? roomId = session.CurrentRoomId;
 
             if (!string.IsNullOrEmpty(roomId))
             {
                 var room = _roomManager.GetRoom(roomId);
+                if (room != null)
+                {
+                    if (room.IsPlayer(session.PlayerId)) await CancelNewGameAsync(room, "Đối thủ mất kết nối, yêu cầu ván mới đã hủy.");
+                    if (room.RemoveSpectator(session.PlayerId)) await PublishPresenceAsync(room, left: session.PlayerId);
+                }
                 if (room != null && room.IsPlayer(session.PlayerId) && room.Session.Engine.Status == "Playing")
                 {
                     room.MarkPlayerDisconnected(session.PlayerId);
@@ -172,11 +180,13 @@ namespace CaroServer.Core
 
                     Console.WriteLine($"[Reconnect] {pending.PlayerId} disconnected from {roomId}. Window={GameConstants.ReconnectWindowSeconds}s");
                     _ = ExpireReconnectAsync(pending);
+                    await BroadcastTimingStateAsync(room);
                 }
                 else
                 {
                     _roomManager.RemoveSpectator(roomId, session.PlayerId);
                     _sessionManager.RemoveSession(session.PlayerId, session);
+                    RemoveEmptyFinishedRoom(room);
                 }
             }
             else
@@ -211,6 +221,9 @@ namespace CaroServer.Core
                 return;
             }
 
+            await room.Actions.WaitAsync();
+            try
+            {
             room.MarkPlayerReconnected(expired.PlayerId);
             int symbol = room.GetPlayerSymbol(expired.PlayerId);
             MoveResult result = room.Session.Engine.ForfeitPlayer(
@@ -223,6 +236,9 @@ namespace CaroServer.Core
             }
 
             await CompleteGameAsync(expired.RoomId, result);
+            RemoveEmptyFinishedRoom(room);
+            }
+            finally { room.Actions.Release(); }
         }
 
         private async Task HandleReconnectAsync(PlayerSession newSession, NetworkMessage message)
@@ -265,6 +281,14 @@ namespace CaroServer.Core
                 return;
             }
 
+            await room.Actions.WaitAsync();
+            try
+            {
+            if (room.Session.Engine.Status != "Playing")
+            {
+                await SendReconnectFailureAsync(newSession, message.RequestId, "Trận đấu đã kết thúc.");
+                return;
+            }
             // Bỏ session tạm được tạo khi TCP connection mới vào.
             _sessionManager.RemoveSession(newSession.PlayerId, newSession, dispose: false);
 
@@ -278,19 +302,15 @@ namespace CaroServer.Core
             room.MarkPlayerReconnected(pending.PlayerId);
             if (!room.HasDisconnectedPlayers)
             {
-                room.Session.ResumeTimer(turn => _ = HandleRoomTimeoutAsync(room.RoomId, turn));
+                _roomManager.ResumeTurnTimer(room.Session);
             }
 
             var state = new GameStateDto
             {
-                Room = new RoomDto
-                {
-                    RoomId = room.RoomId,
-                    PlayerX = CreatePlayerInfo(room.PlayerXId),
-                    PlayerO = CreatePlayerInfo(room.PlayerOId),
-                    SpectatorCount = room.SpectatorCount
-                },
-                Session = room.Session.ToDto()
+                Room = DescribeRoom(room),
+                Session = room.Session.ToDto(),
+                ReconnectDeadlineUtc = room.ReconnectDeadlineUtc,
+                ReconnectWindowSeconds = GameConstants.ReconnectWindowSeconds
             };
 
             var response = new ReconnectResponse
@@ -302,8 +322,11 @@ namespace CaroServer.Core
 
             await newSession.SendMessageAsync(
                 new NetworkMessage(MessageType.ReconnectResponse, response, message.RequestId));
+            await BroadcastTimingStateAsync(room);
 
             Console.WriteLine($"[Reconnect] {pending.PlayerId} restored room {pending.RoomId}.");
+            }
+            finally { room.Actions.Release(); }
         }
 
         private async Task SendReconnectFailureAsync(PlayerSession session, string requestId, string message)
@@ -318,14 +341,14 @@ namespace CaroServer.Core
                 new NetworkMessage(MessageType.ReconnectResponse, response, requestId));
         }
 
-        private async Task HandleRoomTimeoutAsync(string roomId, int timedOutPlayerSymbol)
-        {
-            var result = _roomManager.HandleTimeout(roomId, timedOutPlayerSymbol);
-            if (result != null && result.IsGameOver)
+        private Task BroadcastTimingStateAsync(Room room) => _broadcaster.BroadcastToRoomAsync(
+            room.RoomId, new NetworkMessage(MessageType.GameStateUpdate, new GameStateDto
             {
-                await CompleteGameAsync(roomId, result);
-            }
-        }
+                Room = DescribeRoom(room),
+                Session = room.Session.ToDto(),
+                ReconnectDeadlineUtc = room.ReconnectDeadlineUtc,
+                ReconnectWindowSeconds = GameConstants.ReconnectWindowSeconds
+            }));
 
         private async Task CompleteGameAsync(string roomId, MoveResult result)
         {
@@ -337,6 +360,8 @@ namespace CaroServer.Core
 
             room.Session.StopTimer();
             room.Session.ClearDrawOffer(); // Xóa trạng thái hòa khi ván kết thúc (bởi mọi lý do)
+            await CancelNewGameAsync(room, "Trận đấu đã kết thúc, yêu cầu ván mới đã hủy.");
+            await PublishRoomsAsync();
 
             var match = new MatchHistory
             {
@@ -352,6 +377,8 @@ namespace CaroServer.Core
             var responseDto = new MoveMadeEventDto
             {
                 RoomId = roomId,
+                MatchIdentity = room.Session.MatchId,
+                Timing = room.Session.GetTiming(),
                 WinnerSymbol = result.WinnerSymbol,
                 IsValid = true,
                 ErrorMessage = result.ErrorMessage ?? string.Empty
@@ -376,8 +403,14 @@ namespace CaroServer.Core
             });
         }
 
-        private async Task HandleIncomingMessage(PlayerSession senderSession, NetworkMessage message)
+        private async Task DispatchMessageAsync(PlayerSession senderSession, NetworkMessage message)
         {
+            if (!senderSession.IsAuthenticated && message.Type is not (MessageType.LoginRequest or MessageType.ReconnectRequest or MessageType.Pong))
+            {
+                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.ErrorResponse,
+                    new ErrorResponse { Code = ErrorCode.InvalidRequest, Message = "Vui lòng đăng nhập trước." }, message.RequestId));
+                return;
+            }
             switch (message.Type)
             {
                 case MessageType.LoginRequest:
@@ -443,26 +476,26 @@ namespace CaroServer.Core
 
         private async Task HandleLoginAsync(PlayerSession session, NetworkMessage message)
         {
-            var nicknameElement = (JsonElement)message.Payload!;
-            var nickname = nicknameElement.GetString();
-            if (string.IsNullOrWhiteSpace(nickname))
+            var nickname = message.Payload is JsonElement element && element.ValueKind == JsonValueKind.String ? element.GetString()?.Trim() : null;
+            if (string.IsNullOrWhiteSpace(nickname) || nickname.Length > 64 || nickname.Any(char.IsControl))
             {
                 var errorResp = new ErrorResponse
                 {
                     Code = ErrorCode.InvalidRequest,
-                    Message = "Nickname không được để trống."
+                    Message = "Tên người chơi cần có từ 1 đến 64 ký tự hợp lệ."
                 };
                 await session.SendMessageAsync(
                     new NetworkMessage(MessageType.ErrorResponse, errorResp, message.RequestId));
                 return;
             }
 
-            Console.WriteLine($"[Login] {session.PlayerId} logged in as {nickname}");
-
-            // Xóa session ID tạm nhưng KHÔNG dispose socket (giữ kết nối sống)
-            _sessionManager.RemoveSession(session.PlayerId, dispose: false);
-            session.PlayerId = nickname;
-            _sessionManager.AddSession(session);
+            if (!_sessionManager.TryLogin(session, nickname))
+            {
+                await session.SendMessageAsync(new NetworkMessage(MessageType.ErrorResponse,
+                    new ErrorResponse { Code = ErrorCode.UsernameInUse, Message = "Tên người chơi này đang được sử dụng." }, message.RequestId));
+                return;
+            }
+            Console.WriteLine($"[Login] Accepted {nickname}");
 
             // Thêm vào danh sách Lobby
             _lobbyManager.AddPlayer(nickname, nickname);
@@ -491,17 +524,19 @@ namespace CaroServer.Core
         // Gửi PlayerListResponse cho tất cả Client đang online
         private async Task BroadcastPlayerListAsync()
         {
-            var playerList = new PlayerListResponse { Players = GetOnlinePlayersInfo() };
-            var broadcastMsg = new NetworkMessage(MessageType.PlayerListResponse, playerList);
-
-            foreach (var info in playerList.Players)
+            await _presenceLock.WaitAsync();
+            try
             {
-                var s = _sessionManager.GetSession(info.PlayerName);
-                if (s != null)
+                var playerList = new PlayerListResponse { Players = GetOnlinePlayersInfo() };
+                var broadcastMsg = new NetworkMessage(MessageType.PlayerListResponse, playerList);
+                Console.WriteLine($"[Presence] Online players: {playerList.Players.Count}");
+                foreach (var session in _sessionManager.GetAllSessions().Where(s => s.IsAuthenticated))
                 {
-                    await s.SendMessageAsync(broadcastMsg);
+                    try { await session.SendMessageAsync(broadcastMsg); }
+                    catch (Exception ex) { Console.WriteLine($"[Presence] Delivery failed to {session.PlayerId}: {ex.Message}"); session.Dispose(); }
                 }
             }
+            finally { _presenceLock.Release(); }
         }
 
         private List<PlayerInfoDto> GetOnlinePlayersInfo()
@@ -542,6 +577,10 @@ namespace CaroServer.Core
 
             // Tìm session của người được mời
             var targetSession = _sessionManager.GetSession(request.TargetPlayerId);
+            if (targetSession == null || !targetSession.IsAuthenticated || targetSession == senderSession ||
+                targetSession.CurrentRoomId != null || senderSession.CurrentRoomId != null)
+            { await Reject(senderSession, message, "Đối thủ chưa sẵn sàng nhận lời mời."); return; }
+            _pendingChallenges[(targetSession.PlayerId, senderSession.PlayerId)] = DateTime.UtcNow;
             if (targetSession != null)
             {
                 // Gửi lời mời đến người chơi được chọn
@@ -559,6 +598,10 @@ namespace CaroServer.Core
             Console.WriteLine($"[ChallengeResponse] {senderSession.PlayerId} replied to {response.ChallengerId}: {(response.IsAccepted ? "Accept" : "Decline")}");
 
             var challengerSession = _sessionManager.GetSession(response.ChallengerId);
+            if (challengerSession == null ||
+                !_pendingChallenges.TryRemove((senderSession.PlayerId, challengerSession.PlayerId), out var sentAt) ||
+                DateTime.UtcNow - sentAt > TimeSpan.FromSeconds(60) || senderSession.CurrentRoomId != null || challengerSession.CurrentRoomId != null)
+            { await Reject(senderSession, message, "Lời mời không còn hợp lệ hoặc đối thủ đang bận."); return; }
             if (challengerSession != null)
             {
                 if (response.IsAccepted)
@@ -584,7 +627,8 @@ namespace CaroServer.Core
                         RoomId = roomId,
                         MySymbol = 1,
                         OpponentName = senderSession.PlayerId,
-                        MatchIdentity = matchId
+                        MatchIdentity = matchId,
+                        Timing = room?.Session.GetTiming()
                     };
                     await challengerSession.SendMessageAsync(new NetworkMessage(MessageType.ChallengeResponse, acceptForChallenger, message.RequestId));
 
@@ -596,14 +640,17 @@ namespace CaroServer.Core
                         RoomId = roomId,
                         MySymbol = 2,
                         OpponentName = challengerSession.PlayerId,
-                        MatchIdentity = matchId
+                        MatchIdentity = matchId,
+                        Timing = room?.Session.GetTiming()
                     };
                     await senderSession.SendMessageAsync(new NetworkMessage(MessageType.ChallengeResponse, acceptForSender, message.RequestId));
+                    await PublishRoomsAsync();
                 }
                 else
                 {
                     // Từ chối -> chỉ gửi cho người mời
-                    await challengerSession.SendMessageAsync(message);
+                    await challengerSession.SendMessageAsync(new NetworkMessage(MessageType.ChallengeResponse,
+                        response with { OpponentName = senderSession.PlayerId }, message.RequestId));
                 }
             }
             else
@@ -653,9 +700,12 @@ namespace CaroServer.Core
             }
 
             // Broadcast kết quả cho tất cả người chơi và khán giả trong phòng
+            if (result.IsGameOver) room.Session.MarkEnded();
             var responseDto = new MoveMadeEventDto
             {
                 RoomId = roomId,
+                MatchIdentity = room.Session.MatchId,
+                Timing = room.Session.GetTiming(),
                 PlayerId = senderSession.PlayerId,
                 X = moveRequest.X,
                 Y = moveRequest.Y,
@@ -728,17 +778,17 @@ namespace CaroServer.Core
             else
             {
                 // Trận đấu đã kết thúc, người chơi gửi Surrender thực chất là rời phòng (Về Sảnh)
+                await CancelNewGameAsync(room, "Đối thủ đã rời phòng, yêu cầu ván mới đã hủy.");
                 room.MarkPlayerDisconnected(senderSession.PlayerId);
                 senderSession.CurrentRoomId = null;
+                _lobbyManager.AddPlayer(senderSession.PlayerId, senderSession.PlayerId);
 
-                if (room.IsPlayerDisconnected(room.PlayerXId) && room.IsPlayerDisconnected(room.PlayerOId))
-                {
-                    _roomManager.RemoveRoom(roomId);
-                }
+                RemoveEmptyFinishedRoom(room);
+                await BroadcastPlayerListAsync();
             }
         }
 
-        private async Task HandleNewGameAsync(PlayerSession senderSession, NetworkMessage message)
+        private async Task ResetAcceptedGameAsync(PlayerSession senderSession, NetworkMessage message)
         {
             var jsonElement = (JsonElement)message.Payload!;
             var request = jsonElement.Deserialize<NewGameRequest>(JsonOptions);
@@ -750,6 +800,13 @@ namespace CaroServer.Core
             if (room == null || !room.IsPlayer(senderSession.PlayerId)) return;
 
             // Reset ván cờ và timer trong cùng phòng
+            if (_sessionManager.GetSession(room.PlayerXId)?.CurrentRoomId != roomId ||
+                _sessionManager.GetSession(room.PlayerOId)?.CurrentRoomId != roomId)
+            {
+                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.ErrorResponse,
+                    new ErrorResponse { Code = ErrorCode.InvalidRequest, Message = "Đối thủ đã rời phòng. Hãy về sảnh và gửi lời mời mới." }, message.RequestId));
+                return;
+            }
             bool resetSuccess = _roomManager.ResetRoom(roomId);
             if (!resetSuccess) return;
 
@@ -758,6 +815,7 @@ namespace CaroServer.Core
                 RoomId = roomId,
                 MatchIdentity = room.Session.MatchId,
                 StartingTurn = 1,
+                Timing = room.Session.GetTiming(),
                 Message = $"Ván mới đã bắt đầu do {senderSession.PlayerId} yêu cầu!"
             };
 
@@ -765,90 +823,11 @@ namespace CaroServer.Core
             await _broadcaster.BroadcastToRoomAsync(roomId, newGameMsg);
         }
 
-        private async Task HandleJoinSpectatorAsync(PlayerSession senderSession, NetworkMessage message)
-        {
-            var jsonElement = (JsonElement)message.Payload!;
-            var request = jsonElement.Deserialize<JoinSpectatorRequest>(JsonOptions);
-            string roomId = request?.RoomId ?? string.Empty;
+        private Task HandleJoinSpectatorAsync(PlayerSession sender, NetworkMessage message) =>
+            JoinSpectatorAsync(sender, message, _roomManager.GetRoom(RoomCodes.Normalize(Payload<JoinSpectatorRequest>(message)?.RoomId) ?? ""));
 
-            if (string.IsNullOrWhiteSpace(roomId))
-            {
-                var errResp = new JoinSpectatorResponse
-                {
-                    IsSuccess = false,
-                    ErrorMessage = "Mã phòng không hợp lệ."
-                };
-                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.JoinSpectatorResponse, errResp, message.RequestId));
-                return;
-            }
-
-            var room = _roomManager.GetRoom(roomId);
-            if (room == null)
-            {
-                var errResp = new JoinSpectatorResponse
-                {
-                    IsSuccess = false,
-                    ErrorMessage = "Phòng không tồn tại hoặc trận đấu đã kết thúc."
-                };
-                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.JoinSpectatorResponse, errResp, message.RequestId));
-                return;
-            }
-
-            bool added = _roomManager.AddSpectator(roomId, senderSession.PlayerId);
-            if (!added && !room.IsSpectator(senderSession.PlayerId))
-            {
-                var errResp = new JoinSpectatorResponse
-                {
-                    IsSuccess = false,
-                    ErrorMessage = "Không thể tham gia xem phòng này (bạn có thể là người chơi chính)."
-                };
-                await senderSession.SendMessageAsync(new NetworkMessage(MessageType.JoinSpectatorResponse, errResp, message.RequestId));
-                return;
-            }
-
-            senderSession.CurrentRoomId = roomId;
-
-            var snapshot = new SpectatorStateSnapshotDto
-            {
-                Room = new RoomDto
-                {
-                    RoomId = room.RoomId,
-                    PlayerX = CreatePlayerInfo(room.PlayerXId),
-                    PlayerO = CreatePlayerInfo(room.PlayerOId),
-                    SpectatorCount = room.SpectatorCount
-                },
-                Session = room.Session.ToDto()
-            };
-
-            var successResp = new JoinSpectatorResponse
-            {
-                IsSuccess = true,
-                Snapshot = snapshot
-            };
-
-            await senderSession.SendMessageAsync(new NetworkMessage(MessageType.JoinSpectatorResponse, successResp, message.RequestId));
-        }
-
-        // Xử lý yêu cầu lấy danh sách phòng đang hoạt động
-        private async Task HandleRoomListRequestAsync(PlayerSession senderSession, NetworkMessage message)
-        {
-            var rooms = _roomManager.GetActiveRooms();
-            var dtos = new List<RoomDto>();
-            foreach (var r in rooms)
-            {
-                dtos.Add(new RoomDto
-                {
-                    RoomId = r.RoomId,
-                    PlayerX = CreatePlayerInfo(r.PlayerXId),
-                    PlayerO = CreatePlayerInfo(r.PlayerOId),
-                    SpectatorCount = r.SpectatorCount
-                });
-            }
-            var response = new RoomListResponse { Rooms = dtos };
-            var responseMsg = new NetworkMessage(MessageType.RoomListResponse, response, message.RequestId);
-            await senderSession.SendMessageAsync(responseMsg);
-        }
-
+        private Task HandleRoomListRequestAsync(PlayerSession sender, NetworkMessage message) =>
+            sender.SendMessageAsync(new NetworkMessage(MessageType.RoomListResponse, RoomList(), message.RequestId));
         private async Task HandleDrawOfferRequestAsync(PlayerSession senderSession, NetworkMessage message)
         {
             var jsonElement = (JsonElement)message.Payload!;

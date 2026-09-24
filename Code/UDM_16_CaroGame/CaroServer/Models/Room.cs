@@ -12,10 +12,14 @@ namespace CaroServer.Models
         public string PlayerXId { get; }
         public string PlayerOId { get; }
         public GameSession Session { get; private set; }
+        public SemaphoreSlim Actions { get; } = new(1, 1);
+        public bool IsSpectatorLocked { get; set; }
+        public long PresenceRevision { get; set; }
+        public CaroShared.Contracts.NewGameOfferDto? PendingNewGame { get; set; }
 
         // Sử dụng ConcurrentDictionary làm Thread-safe Set để lưu trữ khán giả
         private readonly ConcurrentDictionary<string, byte> _spectators = new();
-        private readonly ConcurrentDictionary<string, byte> _disconnectedPlayers = new();
+        private readonly ConcurrentDictionary<string, DateTime> _disconnectedPlayers = new();
 
         public Room(string roomId, string playerXId, string playerOId)
         {
@@ -57,7 +61,7 @@ namespace CaroServer.Models
         public bool MarkPlayerDisconnected(string playerId)
         {
             if (!IsPlayer(playerId)) return false;
-            return _disconnectedPlayers.TryAdd(playerId, 0);
+            return _disconnectedPlayers.TryAdd(playerId, DateTime.UtcNow);
         }
 
         public bool MarkPlayerReconnected(string playerId)
@@ -71,6 +75,10 @@ namespace CaroServer.Models
         }
 
         public bool HasDisconnectedPlayers => !_disconnectedPlayers.IsEmpty;
+
+        public DateTime? ReconnectDeadlineUtc => _disconnectedPlayers.Values
+            .Select(time => (DateTime?)time.AddSeconds(CaroShared.Constants.GameConstants.ReconnectWindowSeconds))
+            .DefaultIfEmpty(null).Min();
 
         // Kiểm tra xem playerId có phải người chơi chính hay không
         public bool IsPlayer(string playerId)

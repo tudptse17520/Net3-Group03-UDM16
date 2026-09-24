@@ -16,8 +16,11 @@ namespace CaroServer.Game
         public CaroEngine Engine { get; private set; }
         public TurnTimer Timer { get; private set; }
         public DateTime CreatedAt { get; private set; }
+        public DateTime? EndedAtUtc { get; private set; }
 
         private int _isCompleted = 0;
+        public int? LastMoveX { get; set; }
+        public int? LastMoveY { get; set; }
 
         // --- Draw Negotiation State ---
         private readonly object _drawLock = new object();
@@ -76,8 +79,25 @@ namespace CaroServer.Game
 
         public bool TryClaimCompletion()
         {
-            return System.Threading.Interlocked.Exchange(ref _isCompleted, 1) == 0;
+            if (System.Threading.Interlocked.Exchange(ref _isCompleted, 1) != 0) return false;
+            MarkEnded();
+            return true;
         }
+
+        public void MarkEnded() => EndedAtUtc ??= DateTime.UtcNow;
+
+        public GameTimingDto GetTiming() => new()
+        {
+            MatchStartedAtUtc = CreatedAt.ToUniversalTime(),
+            MatchEndedAtUtc = EndedAtUtc,
+            ServerNowUtc = DateTime.UtcNow,
+            TurnDeadlineUtc = Timer.DeadlineUtc == DateTime.MinValue ? null : Timer.DeadlineUtc,
+            TurnDurationSeconds = CaroShared.Constants.GameConstants.TurnTimeoutSeconds,
+            RemainingTimeSeconds = GetRemainingTimeSeconds(),
+            CurrentTurn = Engine.CurrentTurn,
+            TurnNumber = Engine.MoveCount + 1,
+            IsPaused = Engine.Status == "Playing" && Timer.DeadlineUtc == DateTime.MinValue
+        };
 
         public bool IsPlayer(string playerId)
         {
@@ -120,7 +140,10 @@ namespace CaroServer.Game
                 CurrentTurn = Engine.CurrentTurn,
                 Status = Engine.Status,
                 RemainingTimeSeconds = GetRemainingTimeSeconds(),
-                MatchIdentity = MatchId
+                MatchIdentity = MatchId,
+                LastMoveX = LastMoveX,
+                LastMoveY = LastMoveY,
+                Timing = GetTiming()
             };
         }
 

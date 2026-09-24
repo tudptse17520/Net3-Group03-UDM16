@@ -15,7 +15,7 @@ namespace CaroServer.Managers
         private readonly ConcurrentDictionary<string, Room> _rooms = new();
 
         // Sự kiện khi hết thời gian của lượt đánh
-        public event Action<string, MoveResult>? OnRoomTimeout;
+        public event Func<string, MoveResult, Task>? OnRoomTimeout;
 
         // Tạo phòng mới
         public string CreateRoom(string playerXId, string playerOId)
@@ -38,11 +38,16 @@ namespace CaroServer.Managers
                 return string.Empty;
             }
 
-            string roomId = "ROOM-" + Guid.NewGuid().ToString("N").Substring(0, 6).ToUpper();
+            string roomId;
+            Room room;
+            do
+            {
+                roomId = "ROOM-" + System.Security.Cryptography.RandomNumberGenerator.GetInt32(1000000).ToString("D6");
+                room = new Room(roomId, playerXId, playerOId);
+                if (_rooms.TryAdd(roomId, room)) break;
+                room.Session.Dispose();
+            } while (true);
 
-            var room = new Room(roomId, playerXId, playerOId);
-
-            if (_rooms.TryAdd(roomId, room))
             {
                 Console.WriteLine(
                     $"[RoomManager] Room {roomId} created: {playerXId} (X) vs {playerOId} (O)");
@@ -169,6 +174,8 @@ namespace CaroServer.Managers
 
             if (result.IsValid)
             {
+                room.Session.LastMoveX = x;
+                room.Session.LastMoveY = y;
                 // GAME EVENT LOG: nước đi hợp lệ
                 WriteGameEvent(
                     roomId,
@@ -260,8 +267,6 @@ namespace CaroServer.Managers
                 isValid: true,
                 result: $"Winner: {result.WinnerSymbol}",
                 message: $"Người chơi {timedOutPlayerSymbol} hết thời gian");
-
-            OnRoomTimeout?.Invoke(roomId, result);
 
             return result;
         }
@@ -496,11 +501,11 @@ namespace CaroServer.Managers
         }
 
         // Kích hoạt sự kiện hết giờ của phòng
-        public void TriggerRoomTimeout(
+        public Task TriggerRoomTimeout(
             string roomId,
             MoveResult moveResult)
         {
-            OnRoomTimeout?.Invoke(roomId, moveResult);
+            return OnRoomTimeout?.Invoke(roomId, moveResult) ?? Task.CompletedTask;
         }
 
         public int GetActiveRoomCount()
@@ -524,10 +529,32 @@ namespace CaroServer.Managers
             session.Timer.StartTurn(
                 turnNumber,
                 GameConstants.TurnTimeoutSeconds,
-                _ =>
-                {
-                    HandleTimeout(session.RoomId, playerSymbol);
-                });
+                ignored => _ = CompleteTurnTimeoutAsync(session, playerSymbol, turnNumber));
+        }
+
+        public void ResumeTurnTimer(GameSession session)
+        {
+            int symbol = session.Engine.CurrentTurn;
+            int turn = session.Engine.MoveCount + 1;
+            session.ResumeTimer(ignored => _ = CompleteTurnTimeoutAsync(session, symbol, turn));
+        }
+
+        private async Task CompleteTurnTimeoutAsync(GameSession session, int symbol, int turn)
+        {
+            var room = GetRoom(session.RoomId);
+            if (room == null) return;
+            await room.Actions.WaitAsync();
+            try
+            {
+                // A queued callback from an old turn, a paused game or a rematch is stale.
+                if (!ReferenceEquals(room.Session, session) || room.HasDisconnectedPlayers ||
+                    session.Engine.MoveCount + 1 != turn || session.Engine.CurrentTurn != symbol ||
+                    session.Timer.DeadlineUtc == DateTime.MinValue || session.Timer.DeadlineUtc > DateTime.UtcNow) return;
+                var result = HandleTimeout(session.RoomId, symbol);
+                if (result != null) await TriggerRoomTimeout(session.RoomId, result);
+            }
+            catch (Exception ex) { Console.WriteLine($"[TurnTimeout] {ex.Message}"); }
+            finally { room.Actions.Release(); }
         }
 
         // ============================================================

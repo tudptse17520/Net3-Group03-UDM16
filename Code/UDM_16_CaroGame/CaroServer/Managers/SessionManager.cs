@@ -7,8 +7,24 @@ namespace CaroServer.Managers
     // Quản lý session đang kết nối và các session tạm giữ để Reconnect
     public class SessionManager
     {
-        private readonly ConcurrentDictionary<string, PlayerSession> _sessions = new();
+        private readonly ConcurrentDictionary<string, PlayerSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, PendingReconnectSession> _pendingReconnects = new();
+        private readonly object _loginLock = new();
+
+        public bool TryLogin(PlayerSession session, string nickname)
+        {
+            lock (_loginLock)
+            {
+                if (session.IsAuthenticated || _pendingReconnects.Values.Any(p =>
+                    p.PlayerId.Equals(nickname, StringComparison.OrdinalIgnoreCase))) return false;
+                // Reserve the name atomically before removing the temporary connection ID.
+                if (!_sessions.TryAdd(nickname, session)) return false;
+                RemoveSession(session.PlayerId, session, dispose: false);
+                session.PlayerId = nickname;
+                session.IsAuthenticated = true;
+                return true;
+            }
+        }
 
         public void AddSession(PlayerSession session)
         {

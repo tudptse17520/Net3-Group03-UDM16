@@ -12,6 +12,8 @@ namespace CaroServer.Models
     public class PlayerSession : IDisposable
     {
         public string PlayerId { get; set; }
+        public bool IsAuthenticated { get; set; }
+        private readonly SemaphoreSlim _sendLock = new(1, 1);
 
         // Token dùng để xác thực khi Reconnect.
         public string SessionToken { get; private set; }
@@ -51,10 +53,12 @@ namespace CaroServer.Models
             PlayerId = playerId;
             SessionToken = sessionToken;
             CurrentRoomId = roomId;
+            IsAuthenticated = true;
         }
 
         public async Task SendMessageAsync(NetworkMessage message)
         {
+            await _sendLock.WaitAsync();
             try
             {
                 string json = JsonSerializer.Serialize(message, JsonOptions);
@@ -67,6 +71,7 @@ namespace CaroServer.Models
                 Console.WriteLine($"[PlayerSession] Error sending message to {PlayerId}: {ex.Message}");
                 throw;
             }
+            finally { _sendLock.Release(); }
         }
 
         public void Dispose()

@@ -13,8 +13,39 @@ namespace CaroServer
 {
     class Program
     {
-        static async Task Main(string[] args)
+        static int Main(string[] args)
         {
+            int port = CaroShared.Constants.NetworkConstants.DefaultPort;
+            if (args.Length > 0 && int.TryParse(args[0], out var parsed)) port = parsed;
+            if (args.Contains("--stop") && OperatingSystem.IsWindows())
+            {
+                string configPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "server-config.json"));
+                if (File.Exists(configPath))
+                {
+                    using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(configPath));
+                    if (json.RootElement.TryGetProperty("Port", out var configuredPort)) port = configuredPort.GetInt32();
+                }
+                if (EventWaitHandle.TryOpenExisting($"Local\\Caro.Stop.{port}", out var stop))
+                    using (stop) stop.Set();
+                return 0;
+            }
+            if (port is < 1 or > 65535) return 2;
+            // Hold and release on this same thread; clients are deliberately multi-instance.
+            using var singleton = new Mutex(false, $"Local\\Caro.Server.{port}");
+            bool acquired;
+            try { acquired = singleton.WaitOne(0); }
+            catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) return 0;
+            try { RunAsync(args, port).GetAwaiter().GetResult(); return 0; }
+            catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
+            finally { singleton.ReleaseMutex(); }
+        }
+
+        static async Task RunAsync(string[] args, int port)
+        {
+            bool background = args.Contains("--background");
+            using var log = background ? CreateLog(port) : null;
+            if (log != null) { Console.SetOut(TextWriter.Synchronized(log)); Console.SetError(Console.Out); }
             Console.WriteLine("=== UDM_16 CARO SERVER ===");
             
             // Đọc cấu hình appsettings
@@ -29,25 +60,19 @@ namespace CaroServer
             // Khởi tạo CSDL qua EF Core
             var optionsBuilder = new DbContextOptionsBuilder<CaroDbContext>();
             optionsBuilder.UseSqlServer(connectionString);
-            var dbContext = new CaroDbContext(optionsBuilder.Options);
-            try
+            async Task InitializeDatabaseAsync()
             {
-                await dbContext.Database.EnsureCreatedAsync();
-                Console.WriteLine("[DB] Database connected.");
+                await using var dbContext = new CaroDbContext(optionsBuilder.Options);
+                try { await dbContext.Database.EnsureCreatedAsync(); }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[DB] Persistence unavailable: {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DB] Connection failed: {ex.Message}");
-                Console.WriteLine("[DB] Running without database persistence.");
-            }
+            // Database availability must not block the lobby or local-server readiness.
+            _ = InitializeDatabaseAsync();
 
             var matchRepo = new MatchHistoryRepository(optionsBuilder.Options);
-
-            int port = CaroShared.Constants.NetworkConstants.DefaultPort;
-            if (args.Length > 0 && int.TryParse(args[0], out int parsedPort))
-            {
-                port = parsedPort;
-            }
 
             // Khởi tạo các Manager & Service
             var sessionManager = new SessionManager();
@@ -83,13 +108,32 @@ namespace CaroServer
 
             // Bắt đầu Server lắng nghe TCP
             Task serverTask = tcpServer.StartListeningAsync();
+            if (serverTask.IsFaulted) await serverTask;
+            using var ready = OperatingSystem.IsWindows() ? new EventWaitHandle(false, EventResetMode.ManualReset, $"Local\\Caro.Ready.{port}") : null;
+            using var stop = OperatingSystem.IsWindows() ? new EventWaitHandle(false, EventResetMode.ManualReset, $"Local\\Caro.Stop.{port}") : null;
+            ready?.Set();
+            try
+            {
+                if (background) await Task.WhenAny(serverTask, stop != null ? Task.Run(() => stop.WaitOne()) : Task.Delay(Timeout.Infinite));
+                else
+                {
+                    Console.WriteLine("Press Enter to stop the Server...");
+                    await Task.WhenAny(serverTask, Task.Run(() => Console.ReadLine()));
+                }
+            }
+            finally
+            {
+                ready?.Reset();
+                await heartbeat.DisposeAsync();
+                tcpServer.Stop();
+            }
+        }
 
-            Console.WriteLine("Press Enter to stop the Server...");
-            Console.ReadLine();
-
-            // Dọn dẹp trước khi tắt
-            await heartbeat.DisposeAsync();
-            tcpServer.Stop();
+        static StreamWriter CreateLog(int port)
+        {
+            string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Caro", "Logs");
+            Directory.CreateDirectory(directory);
+            return new StreamWriter(new FileStream(Path.Combine(directory, $"server-{port}.log"), FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
         }
     }
 }

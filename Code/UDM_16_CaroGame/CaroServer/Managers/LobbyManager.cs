@@ -10,7 +10,7 @@ namespace CaroServer.Managers
         // Lưu trữ người chơi an toàn trong môi trường đa luồng (Multi-threading)
         // Key: PlayerId, Value: PlayerName
         // ConcurrentDictionary tự xử lý lock bên trong nên ta không cần dùng từ khóa lock thủ công ở ngoài
-        private readonly ConcurrentDictionary<string, string> _onlinePlayers = new();
+        private readonly ConcurrentDictionary<string, string> _onlinePlayers = new(StringComparer.OrdinalIgnoreCase);
 
         // Thêm người chơi mới vào sảnh
         public bool AddPlayer(string playerId, string playerName)
