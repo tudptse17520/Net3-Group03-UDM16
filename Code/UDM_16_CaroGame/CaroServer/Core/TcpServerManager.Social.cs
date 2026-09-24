@@ -57,6 +57,8 @@ public partial class TcpServerManager
                     else await Reject(sender, message, "Bạn không ở trong phòng này.");
                     break;
                 case MessageType.SetSpectatorLockRequest:
+                    if (sender.PlayerId != room!.OwnerId)
+                    { await Reject(sender, message, "Chỉ chủ phòng mới được khóa hoặc mở phòng."); break; }
                     room!.IsSpectatorLocked = Payload<RoomAccessRequest>(message)!.IsLocked;
                     await PublishPresenceAsync(room);
                     break;
@@ -71,7 +73,7 @@ public partial class TcpServerManager
 
     private RoomDto DescribeRoom(Room room) => new()
     {
-        RoomId = room.RoomId, PlayerX = CreatePlayerInfo(room.PlayerXId), PlayerO = CreatePlayerInfo(room.PlayerOId),
+        RoomId = room.RoomId, OwnerName = room.OwnerId, PlayerX = CreatePlayerInfo(room.PlayerXId), PlayerO = CreatePlayerInfo(room.PlayerOId),
         IsSpectatorLocked = room.IsSpectatorLocked, Revision = room.PresenceRevision,
         SpectatorCount = room.SpectatorCount,
         Spectators = room.GetSpectators().Order().Select(CreatePlayerInfo).ToList()
