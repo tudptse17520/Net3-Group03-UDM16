@@ -10,15 +10,20 @@ using CaroClient.Network;
 
 namespace CaroClient
 {
-    public partial class MatchHistoryForm : Form
+    public partial class MatchHistoryForm : CaroForm
     {
         private readonly string _playerName;
         private bool _isLoading = false;
+        private readonly SoftLoadingIndicator _historyLoading = new() { Visible = false };
+        private TaskCompletionSource? _historyRequest;
         private readonly ToolTip _sharedToolTip = new ToolTip();
 
         public MatchHistoryForm(string playerName)
         {
             InitializeComponent();
+            _historyLoading.SetBounds(BtnRefresh.Left, BtnRefresh.Bottom + 2, BtnRefresh.Width, 10);
+            _historyLoading.Anchor = BtnRefresh.Anchor;
+            BtnRefresh.Parent!.Controls.Add(_historyLoading);
             _playerName = playerName;
             this.DoubleBuffered = true;
 
@@ -34,7 +39,7 @@ namespace CaroClient
             NetworkClient.Instance.OnDisconnected += OnDisconnectedHandler;
             this.FormClosed += MatchHistoryForm_FormClosed;
 
-            RefreshMatchHistoryAsync();
+            this.Shown += (_, _) => RefreshMatchHistoryAsync();
         }
 
         protected override void OnPaintBackground(PaintEventArgs e)
@@ -49,6 +54,7 @@ namespace CaroClient
             NetworkClient.Instance.OnError -= OnErrorHandler;
             NetworkClient.Instance.OnDisconnected -= OnDisconnectedHandler;
             _sharedToolTip.Dispose();
+            _historyRequest?.TrySetCanceled();
         }
 
         private void OnMatchHistoryReceivedHandler(List<MatchDto> matches)
@@ -61,6 +67,7 @@ namespace CaroClient
 
             PopulateDataGridView(matches);
             CalculateStatistics(matches);
+            _historyRequest?.TrySetResult();
             ResetLoadingState();
             
             if (matches.Count == 0)
@@ -76,6 +83,7 @@ namespace CaroClient
                 this.Invoke(new Action(() => OnErrorHandler(ex)));
                 return;
             }
+            _historyRequest?.TrySetException(ex);
             ResetLoadingState();
         }
 
@@ -86,19 +94,22 @@ namespace CaroClient
                 this.Invoke(new Action(OnDisconnectedHandler));
                 return;
             }
+            _historyRequest?.TrySetException(new IOException("Mất kết nối tới máy chủ."));
             ResetLoadingState();
         }
 
         // ============================
         // Load dữ liệu lịch sử
         // ============================
-        private void RefreshMatchHistoryAsync()
+        private async void RefreshMatchHistoryAsync()
         {
             if (_isLoading) return;
 
             try
             {
                 _isLoading = true;
+                _historyLoading.Visible = true;
+                _historyRequest = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 BtnRefresh.Text = "ĐANG TẢI...";
                 BtnRefresh.Enabled = false;
 
@@ -111,18 +122,22 @@ namespace CaroClient
 
                 var request = new MatchHistoryRequest { PlayerId = _playerName };
                 var message = new NetworkMessage(MessageType.MatchHistoryRequest, request);
-                _ = NetworkClient.Instance.SendMessageAsync(message);
+                await NetworkClient.Instance.SendMessageAsync(message);
+                await _historyRequest.Task.WaitAsync(TimeSpan.FromSeconds(15));
             }
             catch (Exception ex)
             {
+                if (IsDisposed || Disposing) return;
                 ResetLoadingState();
                 CaroDialogForm.Show(this, $"Lỗi gửi yêu cầu lịch sử: {ex.Message}", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            finally { if (!IsDisposed) ResetLoadingState(); }
         }
 
         private void ResetLoadingState()
         {
             _isLoading = false;
+            _historyLoading.Visible = false;
             BtnRefresh.Text = "LÀM MỚI";
             BtnRefresh.Enabled = true;
         }

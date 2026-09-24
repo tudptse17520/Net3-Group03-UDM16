@@ -7,16 +7,25 @@ using CaroClient.Drawing;
 
 namespace CaroClient
 {
-    public partial class PersonalizationForm : Form
+    public partial class PersonalizationForm : CaroForm
     {
         private PlayerPersonalizationSettings _tempSettings;
         private string? _pendingAvatarPath = null;
         private bool _pendingAvatarRemove = false;
         private Image? _currentAvatar;
+        private readonly SoftLoadingIndicator _avatarLoading = new() { Visible = false };
+        private readonly Label _avatarStatus = new() { AutoEllipsis = true, ForeColor = CaroTheme.TextMuted };
+        private TaskCompletionSource<string?>? _avatarAck;
 
         public PersonalizationForm()
         {
             InitializeComponent();
+            _avatarStatus.SetBounds(380, 244, 200, 20);
+            _avatarLoading.SetBounds(380, 266, 200, 10);
+            Controls.AddRange([_avatarStatus, _avatarLoading]);
+            CaroClient.Network.NetworkClient.Instance.OnAvatarUpdateResponse += AvatarUpdateAcknowledged;
+            CaroClient.Network.NetworkClient.Instance.OnAvatarRemoveResponse += AvatarRemoveAcknowledged;
+            CaroClient.Network.NetworkClient.Instance.OnDisconnected += AvatarDisconnected;
             
             // Clone current settings to temp
             _tempSettings = (PlayerPersonalizationSettings)PersonalizationManager.Instance.Settings.Clone();
@@ -46,15 +55,19 @@ namespace CaroClient
             string myNick = CaroClient.Network.NetworkClient.Instance.CurrentNickname;
             if (playerId == myNick)
             {
-                SafeInvoke(() =>
+                if (IsDisposed || !IsHandleCreated) return;
+                var copy = avatar != null ? (Image)avatar.Clone() : null;
+                try { BeginInvoke(() =>
                 {
-                    if (!_pendingAvatarRemove && _pendingAvatarPath == null)
+                    if (!IsDisposed && !_pendingAvatarRemove && _pendingAvatarPath == null)
                     {
                         if (_currentAvatar != null) _currentAvatar.Dispose();
-                        _currentAvatar = avatar != null ? (Image)avatar.Clone() : null;
+                        _currentAvatar = copy;
                         PicAvatar.Invalidate();
                     }
-                });
+                    else copy?.Dispose();
+                }); }
+                catch (InvalidOperationException) { copy?.Dispose(); }
             }
         }
 
@@ -95,32 +108,59 @@ namespace CaroClient
             _tempSettings.PieceAppearance.Effect = (PieceEffect)(CmbEffect.SelectedItem ?? PieceEffect.Soft3D);
         }
 
-        private void BtnSave_Click(object sender, EventArgs e)
+        private async void BtnSave_Click(object sender, EventArgs e)
         {
+            if (_avatarLoading.Visible) return;
             ApplyUIToSettings();
             PersonalizationManager.Instance.CommitTemporarySettings(_tempSettings);
 
-            if (_pendingAvatarRemove)
+            if (_pendingAvatarRemove || _pendingAvatarPath != null)
             {
-                _ = CaroClient.Network.NetworkClient.Instance.SendAvatarRemoveAsync();
-            }
-            else if (_pendingAvatarPath != null)
-            {
+                BtnSave.Enabled = false;
+                _avatarLoading.Visible = true;
+                _avatarAck = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 try
                 {
-                    string base64 = AvatarManager.ProcessAndEncodeAvatar(_pendingAvatarPath);
-                    _ = CaroClient.Network.NetworkClient.Instance.SendAvatarUpdateAsync(base64);
+                    if (_pendingAvatarRemove)
+                    {
+                        _avatarStatus.Text = "ĐANG ĐỒNG BỘ ẢNH...";
+                        await CaroClient.Network.NetworkClient.Instance.SendAvatarRemoveAsync();
+                    }
+                    else
+                    {
+                        _avatarStatus.Text = "ĐANG XỬ LÝ ẢNH...";
+                        string path = _pendingAvatarPath!;
+                        string base64 = await Task.Run(() => AvatarManager.ProcessAndEncodeAvatar(path));
+                        if (IsDisposed) return;
+                        _avatarStatus.Text = "ĐANG ĐỒNG BỘ ẢNH...";
+                        await CaroClient.Network.NetworkClient.Instance.SendAvatarUpdateAsync(base64);
+                    }
+                    string? error = await _avatarAck.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                    if (error != null) throw new InvalidOperationException(error);
+                    if (Owner is Form owner) ToastNotification.Show(owner, "ĐÃ ĐỒNG BỘ ẢNH", ToastType.Success);
                 }
                 catch (Exception ex)
                 {
+                    if (IsDisposed) return;
+                    _avatarStatus.Text = "Đồng bộ chưa thành công";
                     CaroDialogForm.Show(this, "Lỗi xử lý ảnh: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
+                }
+                finally
+                {
+                    if (!IsDisposed) { BtnSave.Enabled = true; _avatarLoading.Visible = false; }
                 }
             }
 
             this.DialogResult = DialogResult.OK;
             this.Close();
         }
+
+        private void AvatarUpdateAcknowledged(CaroShared.Contracts.AvatarUpdateResponse response) =>
+            _avatarAck?.TrySetResult(response.Success ? null : response.Message ?? "Máy chủ từ chối cập nhật ảnh.");
+        private void AvatarRemoveAcknowledged(CaroShared.Contracts.AvatarRemoveResponse response) =>
+            _avatarAck?.TrySetResult(response.Success ? null : response.Message ?? "Máy chủ từ chối xóa ảnh.");
+        private void AvatarDisconnected() => _avatarAck?.TrySetResult("Mất kết nối tới máy chủ.");
 
         private void BtnCancel_Click(object sender, EventArgs e)
         {
@@ -212,12 +252,14 @@ namespace CaroClient
             else
             {
                 g.FillEllipse(Brushes.LightGray, rect);
-                StringFormat sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                using var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
                 string name = CaroClient.Network.NetworkClient.Instance.CurrentNickname;
                 if (string.IsNullOrEmpty(name)) name = "?";
-                g.DrawString(name.Substring(0, 1).ToUpper(), new Font("Segoe UI", 24, FontStyle.Bold), Brushes.White, rect, sf);
+                using var avatarFont = new Font("Segoe UI", 24, FontStyle.Bold);
+                g.DrawString(name.Substring(0, 1).ToUpper(), avatarFont, Brushes.White, rect, sf);
             }
-            g.DrawEllipse(new Pen(CaroTheme.WoodFrame, 2f), rect);
+            using var borderPen = new Pen(CaroTheme.WoodFrame, 2f);
+            g.DrawEllipse(borderPen, rect);
         }
 
         private void UI_Changed(object sender, EventArgs e)
@@ -227,6 +269,10 @@ namespace CaroClient
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            _avatarAck?.TrySetCanceled();
+            CaroClient.Network.NetworkClient.Instance.OnAvatarUpdateResponse -= AvatarUpdateAcknowledged;
+            CaroClient.Network.NetworkClient.Instance.OnAvatarRemoveResponse -= AvatarRemoveAcknowledged;
+            CaroClient.Network.NetworkClient.Instance.OnDisconnected -= AvatarDisconnected;
             AvatarManager.Instance.OnAvatarUpdated -= OnAvatarUpdated;
             if (_currentAvatar != null)
             {

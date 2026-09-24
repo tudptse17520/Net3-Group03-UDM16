@@ -16,6 +16,7 @@ namespace CaroClient
         /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
+            if (disposing) { DisposeProgressUi(); DisposeSocialUi(); }
             if (disposing && (components != null))
             {
                 components.Dispose();
@@ -48,28 +49,28 @@ namespace CaroClient
             picAvatarPlayer1 = new PictureBox();
             lblPlayer1Name = new Label();
             lblPlayer1Id = new Label();
-            lblPlayer1TimerPill = new Label();
-            pnlPlayer1Stats = new Panel();
+            lblPlayer1TimerPill = new PaintedLabel();
+            pnlPlayer1Stats = new BufferedPanel();
             Piece1 = new Label();
             picPlayer1Piece = new PictureBox();
             lblPlayer1MoveCountLabel = new Label();
             lblPlayer1MoveCount = new Label();
-            pnlPlayer1Turn = new Label();
-            prgPlayer1Timer = new ProgressBar();
+            pnlPlayer1Turn = new PaintedLabel();
+            prgPlayer1Timer = new Soft3DProgressBar();
 
             // Player 2 Card & Controls
             pnlPlayer2 = new Soft3DPanel();
             picAvatarPlayer2 = new PictureBox();
             lblPlayer2Name = new Label();
             lblPlayer2Id = new Label();
-            lblPlayer2TimerPill = new Label();
-            pnlPlayer2Stats = new Panel();
+            lblPlayer2TimerPill = new PaintedLabel();
+            pnlPlayer2Stats = new BufferedPanel();
             Piece2 = new Label();
             picPlayer2Piece = new PictureBox();
             lblPlayer2MoveCountLabel = new Label();
             lblPlayer2MoveCount = new Label();
-            pnlPlayer2Turn = new Label();
-            prgPlayer2Timer = new ProgressBar();
+            pnlPlayer2Turn = new PaintedLabel();
+            prgPlayer2Timer = new Soft3DProgressBar();
 
             pnlWoodFrame.SuspendLayout();
             pnlPlayer1.SuspendLayout();
@@ -83,17 +84,17 @@ namespace CaroClient
             SuspendLayout();
 
             // 
-            // lblAppTitle (Header Title: CARO ONLINE - GỖ & CỔ ĐIỂN)
+            // lblAppTitle (Header Title: C A R O)
             // 
             lblAppTitle.AutoSize = false;
             lblAppTitle.UseMnemonic = false;
             lblAppTitle.Font = new Font("Segoe UI", 21F, FontStyle.Bold, GraphicsUnit.Point);
             lblAppTitle.ForeColor = CaroTheme.TextDark;
-            lblAppTitle.Location = new Point(0, 10);
+            lblAppTitle.Location = new Point(0, 4);
             lblAppTitle.Name = "lblAppTitle";
-            lblAppTitle.Size = new Size(1360, 44);
+            lblAppTitle.Size = new Size(1360, 38);
             lblAppTitle.TabIndex = 18;
-            lblAppTitle.Text = "CARO ONLINE - GỖ & CỔ ĐIỂN";
+            lblAppTitle.Text = "C A R O";
             lblAppTitle.TextAlign = ContentAlignment.MiddleCenter;
 
             // 
@@ -202,37 +203,37 @@ namespace CaroClient
             pnlPlayer1.TabIndex = 0;
 
             // picAvatarPlayer1 (Monogram initial avatar)
-            picAvatarPlayer1.Location = new Point(18, 18);
+            picAvatarPlayer1.Location = new Point(14, 16);
             picAvatarPlayer1.Name = "picAvatarPlayer1";
-            picAvatarPlayer1.Size = new Size(64, 64);
+            picAvatarPlayer1.Size = new Size(56, 56);
             picAvatarPlayer1.TabIndex = 1;
             picAvatarPlayer1.TabStop = false;
             picAvatarPlayer1.Click += pictureBox1_Click;
-
-            // lblPlayer1Name
-            lblPlayer1Name.AutoEllipsis = true;
-            lblPlayer1Name.AutoSize = false;
-            lblPlayer1Name.Font = new Font("Segoe UI", 13.5F, FontStyle.Bold);
-            lblPlayer1Name.ForeColor = CaroTheme.TextDark;
-            lblPlayer1Name.Location = new Point(90, 20);
-            lblPlayer1Name.Name = "lblPlayer1Name";
-            lblPlayer1Name.Size = new Size(155, 28);
-            lblPlayer1Name.TabIndex = 9;
-            lblPlayer1Name.Text = "Player 1";
-            lblPlayer1Name.TextAlign = ContentAlignment.MiddleLeft;
 
             // lblPlayer1Id
             lblPlayer1Id.AutoEllipsis = true;
             lblPlayer1Id.AutoSize = false;
             lblPlayer1Id.Font = new Font("Segoe UI", 9.5F);
             lblPlayer1Id.ForeColor = CaroTheme.TextMuted;
-            lblPlayer1Id.Location = new Point(90, 48);
+            lblPlayer1Id.Location = new Point(82, 16);
             lblPlayer1Id.Name = "lblPlayer1Id";
-            lblPlayer1Id.Size = new Size(155, 20);
+            lblPlayer1Id.Size = new Size(164, 20);
             lblPlayer1Id.TabIndex = 8;
-            lblPlayer1Id.Text = "ID: ---";
+            lblPlayer1Id.Text = "PLAYER 1";
             lblPlayer1Id.TextAlign = ContentAlignment.MiddleLeft;
             lblPlayer1Id.Click += label2_Click;
+
+            // lblPlayer1Name
+            lblPlayer1Name.AutoEllipsis = true;
+            lblPlayer1Name.AutoSize = false;
+            lblPlayer1Name.Font = new Font("Segoe UI", 13.5F, FontStyle.Bold);
+            lblPlayer1Name.ForeColor = CaroTheme.TextDark;
+            lblPlayer1Name.Location = new Point(82, 38);
+            lblPlayer1Name.Name = "lblPlayer1Name";
+            lblPlayer1Name.Size = new Size(164, 32);
+            lblPlayer1Name.TabIndex = 9;
+            lblPlayer1Name.Text = "Player 1";
+            lblPlayer1Name.TextAlign = ContentAlignment.MiddleLeft;
 
             // lblPlayer1TimerPill (Turn timer pill in Player 1 card)
             lblPlayer1TimerPill.AutoSize = false;
@@ -313,7 +314,7 @@ namespace CaroClient
             prgPlayer1Timer.Name = "prgPlayer1Timer";
             prgPlayer1Timer.Size = new Size(228, 10);
             prgPlayer1Timer.TabIndex = 0;
-            prgPlayer1Timer.Visible = false;
+            prgPlayer1Timer.Visible = true;
 
             // ══════════════════════════════════════════════════════════════════
             //  PLAYER 2 CARD (RIGHT - OPPONENT)
@@ -331,35 +332,35 @@ namespace CaroClient
             pnlPlayer2.TabIndex = 16;
 
             // picAvatarPlayer2 (Monogram initial avatar)
-            picAvatarPlayer2.Location = new Point(18, 18);
+            picAvatarPlayer2.Location = new Point(14, 16);
             picAvatarPlayer2.Name = "picAvatarPlayer2";
-            picAvatarPlayer2.Size = new Size(64, 64);
+            picAvatarPlayer2.Size = new Size(56, 56);
             picAvatarPlayer2.TabIndex = 1;
             picAvatarPlayer2.TabStop = false;
-
-            // lblPlayer2Name
-            lblPlayer2Name.AutoEllipsis = true;
-            lblPlayer2Name.AutoSize = false;
-            lblPlayer2Name.Font = new Font("Segoe UI", 13.5F, FontStyle.Bold);
-            lblPlayer2Name.ForeColor = CaroTheme.TextDark;
-            lblPlayer2Name.Location = new Point(90, 20);
-            lblPlayer2Name.Name = "lblPlayer2Name";
-            lblPlayer2Name.Size = new Size(155, 28);
-            lblPlayer2Name.TabIndex = 9;
-            lblPlayer2Name.Text = "Player 2";
-            lblPlayer2Name.TextAlign = ContentAlignment.MiddleLeft;
 
             // lblPlayer2Id
             lblPlayer2Id.AutoEllipsis = true;
             lblPlayer2Id.AutoSize = false;
             lblPlayer2Id.Font = new Font("Segoe UI", 9.5F);
             lblPlayer2Id.ForeColor = CaroTheme.TextMuted;
-            lblPlayer2Id.Location = new Point(90, 48);
+            lblPlayer2Id.Location = new Point(82, 16);
             lblPlayer2Id.Name = "lblPlayer2Id";
-            lblPlayer2Id.Size = new Size(155, 20);
+            lblPlayer2Id.Size = new Size(164, 20);
             lblPlayer2Id.TabIndex = 8;
-            lblPlayer2Id.Text = "ID: ---";
+            lblPlayer2Id.Text = "PLAYER 2";
             lblPlayer2Id.TextAlign = ContentAlignment.MiddleLeft;
+
+            // lblPlayer2Name
+            lblPlayer2Name.AutoEllipsis = true;
+            lblPlayer2Name.AutoSize = false;
+            lblPlayer2Name.Font = new Font("Segoe UI", 13.5F, FontStyle.Bold);
+            lblPlayer2Name.ForeColor = CaroTheme.TextDark;
+            lblPlayer2Name.Location = new Point(82, 38);
+            lblPlayer2Name.Name = "lblPlayer2Name";
+            lblPlayer2Name.Size = new Size(164, 32);
+            lblPlayer2Name.TabIndex = 9;
+            lblPlayer2Name.Text = "Player 2";
+            lblPlayer2Name.TextAlign = ContentAlignment.MiddleLeft;
 
             // lblPlayer2TimerPill (Turn timer pill in Player 2 card)
             lblPlayer2TimerPill.AutoSize = false;
@@ -436,13 +437,13 @@ namespace CaroClient
             prgPlayer2Timer.Name = "prgPlayer2Timer";
             prgPlayer2Timer.Size = new Size(228, 10);
             prgPlayer2Timer.TabIndex = 0;
-            prgPlayer2Timer.Visible = false;
+            prgPlayer2Timer.Visible = true;
 
             // ══════════════════════════════════════════════════════════════════
             //  FORM MAIN CONFIGURATION
             // ══════════════════════════════════════════════════════════════════
-            AutoScaleDimensions = new SizeF(7F, 15F);
-            AutoScaleMode = AutoScaleMode.Font;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = CaroTheme.Background;
             ClientSize = new Size(1360, 810);
             MinimumSize = new Size(1220, 810);
@@ -459,7 +460,7 @@ namespace CaroClient
             Margin = new Padding(3, 2, 3, 2);
             Name = "GameBoardForm";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "CARO ONLINE - GỖ & CỔ ĐIỂN";
+            Text = "C A R O";
 
             pnlWoodFrame.ResumeLayout(false);
             pnlPlayer1.ResumeLayout(false);
@@ -500,27 +501,27 @@ namespace CaroClient
         private PictureBox picAvatarPlayer1;
         private Label lblPlayer1Name;
         private Label lblPlayer1Id;
-        private Label lblPlayer1TimerPill;
+        private PaintedLabel lblPlayer1TimerPill;
         private Panel pnlPlayer1Stats;
         private Label Piece1;
         private PictureBox picPlayer1Piece;
         private Label lblPlayer1MoveCountLabel;
         private Label lblPlayer1MoveCount;
-        private Label pnlPlayer1Turn;
-        private ProgressBar prgPlayer1Timer;
+        private PaintedLabel pnlPlayer1Turn;
+        private Soft3DProgressBar prgPlayer1Timer;
 
         // Player 2
         private Soft3DPanel pnlPlayer2;
         private PictureBox picAvatarPlayer2;
         private Label lblPlayer2Name;
         private Label lblPlayer2Id;
-        private Label lblPlayer2TimerPill;
+        private PaintedLabel lblPlayer2TimerPill;
         private Panel pnlPlayer2Stats;
         private Label Piece2;
         private PictureBox picPlayer2Piece;
         private Label lblPlayer2MoveCountLabel;
         private Label lblPlayer2MoveCount;
-        private Label pnlPlayer2Turn;
-        private ProgressBar prgPlayer2Timer;
+        private PaintedLabel pnlPlayer2Turn;
+        private Soft3DProgressBar prgPlayer2Timer;
     }
 }

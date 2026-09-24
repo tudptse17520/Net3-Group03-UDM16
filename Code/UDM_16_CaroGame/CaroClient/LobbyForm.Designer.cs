@@ -62,7 +62,7 @@ namespace CaroClient
             LblTitle.Location = new Point(0, 15);
             LblTitle.Name = "LblTitle";
             LblTitle.Size = new Size(880, 36);
-            LblTitle.Text = "CARO ONLINE - SẢNH CHỜ";
+            LblTitle.Text = "C A R O - SẢNH CHỜ";
             LblTitle.TextAlign = ContentAlignment.MiddleCenter;
 
             // ==========================================
@@ -270,8 +270,8 @@ namespace CaroClient
             // ==========================================
             // LobbyForm
             // ==========================================
-            AutoScaleDimensions = new SizeF(7F, 15F);
-            AutoScaleMode = AutoScaleMode.Font;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = CaroTheme.Background;
             ClientSize = new Size(880, 520);
             Controls.Add(LblTitle);
@@ -283,7 +283,7 @@ namespace CaroClient
             MaximizeBox = false;
             Name = "LobbyForm";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "Sảnh Chờ - Game Caro";
+            Text = "Sảnh Chờ - C A R O";
 
             cardPlayers.ResumeLayout(false);
             pnlPlayersContainer.ResumeLayout(false);

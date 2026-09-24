@@ -6,6 +6,31 @@ using System.Windows.Forms;
 
 namespace CaroClient
 {
+    public class BufferedPanel : Panel
+    {
+        public BufferedPanel() => SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+            ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+
+    // Label normally paints text before raising Paint. These surfaces own their entire
+    // rendering, so the default label text/background must not be painted a second time.
+    public class PaintedLabel : Label
+    {
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public Action<PaintEventArgs>? Renderer { get; set; }
+        public PaintedLabel() => SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            if (Renderer != null) Renderer(e);
+            else base.OnPaint(e);
+        }
+    }
+
+    public class BufferedCellButton : Button
+    {
+        public BufferedCellButton() => SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+
     /// <summary>
     /// Thẻ hiển thị Soft 3D / Claymorphism bo góc 18px với bóng đổ ấm và highlight trên-trái.
     /// </summary>
@@ -16,6 +41,26 @@ namespace CaroClient
 
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool IsWinnerHighlighted { get; set; } = false;
+
+        private double _turnEmphasis;
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public double TurnEmphasis
+        {
+            get => _turnEmphasis;
+            set
+            {
+                double next = Math.Clamp(value, 0, 1);
+                if (Math.Abs(next - _turnEmphasis) < .001) return;
+                _turnEmphasis = next;
+                // Only the border/shadow changes. Repainting the whole card forces
+                // all transparent descendants to erase and repaint their backgrounds.
+                int edge = CornerRadius + 10;
+                Invalidate(new Rectangle(0, 0, Width, edge));
+                Invalidate(new Rectangle(0, Math.Max(0, Height - edge), Width, edge));
+                Invalidate(new Rectangle(0, edge, 12, Math.Max(0, Height - 2 * edge)));
+                Invalidate(new Rectangle(Math.Max(0, Width - 12), edge, 12, Math.Max(0, Height - 2 * edge)));
+            }
+        }
 
         public Soft3DPanel()
         {
@@ -48,7 +93,7 @@ namespace CaroClient
             }
 
             int pad = 5;
-            var shadowRect = new Rectangle(pad + 2, pad + 3, this.Width - pad * 2 - 2, this.Height - pad * 2 - 2);
+            var shadowRect = new Rectangle(pad + 2, pad + 3 + (int)(_turnEmphasis * 2), this.Width - pad * 2 - 2, this.Height - pad * 2 - 2);
             var cardRect = new Rectangle(pad, pad, this.Width - pad * 2 - 2, this.Height - pad * 2 - 2);
 
             if (cardRect.Width <= 10 || cardRect.Height <= 10) return;
@@ -73,6 +118,11 @@ namespace CaroClient
                 }
 
                 // 4. Outer Border (Normal hoặc Golden Glow khi thắng)
+                if (_turnEmphasis > .01)
+                {
+                    using var turnPen = new Pen(Color.FromArgb((int)(130 * _turnEmphasis), CaroTheme.WoodHighlight), 2f);
+                    e.Graphics.DrawPath(turnPen, cardPath);
+                }
                 if (IsWinnerHighlighted)
                 {
                     using (var goldPen = new Pen(CaroTheme.VictoryGold, 2.5f))
@@ -116,6 +166,9 @@ namespace CaroClient
 
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string? GlyphIcon { get; set; } = null;
+
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public bool FitTextToWidth { get; set; }
 
         protected override bool ShowFocusCues => false;
 
@@ -170,8 +223,10 @@ namespace CaroClient
         private void UpdateRegion()
         {
             if (this.Width <= 4 || this.Height <= 4) return;
-            int radius = this.Height / 2;
-            using var path = CaroTheme.GetRoundedPath(new Rectangle(0, 0, this.Width, this.Height), radius);
+            // Clip the native button edge outside the painted pill and its shadow.
+            // Otherwise Windows can leave a straight focus/default border above the pill.
+            int radius = Math.Max(4, (this.Height - 4) / 2);
+            using var path = CaroTheme.GetRoundedPath(new Rectangle(1, 1, this.Width - 2, this.Height - 2), radius);
             this.Region?.Dispose();
             this.Region = new Region(path);
         }
@@ -322,10 +377,13 @@ namespace CaroClient
                 textRect.Y += 1;
             }
 
+            using var fittedFont = FitTextToWidth ? new Font(Font.FontFamily,
+                Font.SizeInPoints * Math.Min(1f, (float)textRect.Width / Math.Max(1,
+                    TextRenderer.MeasureText(e.Graphics, displayText, Font, Size.Empty, TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix).Width)), Font.Style) : null;
             TextRenderer.DrawText(
                 e.Graphics,
                 displayText,
-                this.Font,
+                fittedFont ?? this.Font,
                 textRect,
                 fgColor,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix
@@ -479,7 +537,7 @@ namespace CaroClient
     /// Tối ưu phần cứng DWM, hoàn toàn không gây lag CPU, không giật hình (flicker), không để sót panel vô hình.
     /// Quản lý tối đa 1 instance duy nhất trên mỗi Form cha theo cơ chế reference count (idempotent lifecycle).
     /// </summary>
-    public class BackdropOverlay : Form
+    public class BackdropOverlay : CaroForm
     {
         private static readonly Dictionary<Form, BackdropOverlay> _activeBackdrops = new();
 
@@ -701,21 +759,7 @@ namespace CaroClient
             }
             catch { }
 
-            // Fade-out nhanh ~100-120ms
-            if (!this.IsDisposed && this.IsHandleCreated && this.Visible)
-            {
-                try
-                {
-                    for (int i = 0; i < 4; i++)
-                    {
-                        this.Opacity = Math.Max(0.0, this.Opacity - (_targetOpacity / 4.0));
-                        Application.DoEvents();
-                        System.Threading.Thread.Sleep(25);
-                    }
-                }
-                catch { }
-            }
-
+            // Close without blocking the UI or pumping reentrant network callbacks.
             try
             {
                 this.Close();
@@ -749,7 +793,7 @@ namespace CaroClient
     /// Tự động kết hợp BackdropOverlay để làm dịu nền phía sau và làm nổi bật nội dung hộp thoại.
     /// Tự động đo độ dài text để tăng chiều cao hợp lý, đảm bảo 100% không bao giờ bị cắt chữ.
     /// </summary>
-    public class CaroDialogForm : Form
+    public class CaroDialogForm : CaroForm
     {
         private readonly Label _lblTitle;
         private readonly Label _lblMessage;
@@ -1094,4 +1138,3 @@ namespace CaroClient
         }
     }
 }
-

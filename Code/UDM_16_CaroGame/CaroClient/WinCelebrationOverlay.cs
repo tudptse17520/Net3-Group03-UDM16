@@ -11,7 +11,7 @@ namespace CaroClient
     /// Sử dụng Owned Form không viền trong suốt (TransparencyKey) + WS_EX_TRANSPARENT để truyền chuột 100%.
     /// Quản lý DUY NHẤT 1 Animation Timer (~33ms / 30 FPS), đồng bộ tiến trình với GameBoardForm.
     /// </summary>
-    public class WinCelebrationOverlay : Form
+    public class WinCelebrationOverlay : CaroForm
     {
         private readonly GameBoardForm _ownerForm;
         private readonly string _winnerName;
@@ -20,7 +20,9 @@ namespace CaroClient
 
         private System.Windows.Forms.Timer? _animTimer;
         private int _elapsedMs = 0;
-        private const int TotalDurationMs = 2600;
+        private const int TotalDurationMs = 3000;
+        private readonly System.Diagnostics.Stopwatch _duration = new();
+        public long ElapsedMilliseconds => _duration.ElapsedMilliseconds;
 
         public event Action? CelebrationCompleted;
 
@@ -67,10 +69,14 @@ namespace CaroClient
             get
             {
                 CreateParams cp = base.CreateParams;
-                cp.ExStyle |= 0x00000020; // WS_EX_TRANSPARENT: nhấp chuột xuyên thấu 100%
                 cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW: không hiện trong Alt+Tab
                 return cp;
             }
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
         }
 
         private void UpdateBoundsToOwner()
@@ -112,6 +118,7 @@ namespace CaroClient
         {
             StopAnimation();
             _elapsedMs = 0;
+            _duration.Restart();
             _particles.Clear();
             _sparkles.Clear();
             _burstSpawned = false;
@@ -122,7 +129,9 @@ namespace CaroClient
             // Khởi tạo sparkle positions ngẫu nhiên quanh board area
             InitSparkles();
 
+            UpdateBoundsToOwner();
             this.Show(_ownerForm);
+            this.BringToFront();
 
             _animTimer = new System.Windows.Forms.Timer { Interval = 33 };
             _animTimer.Tick += AnimTimer_Tick;
@@ -154,7 +163,7 @@ namespace CaroClient
 
         private void AnimTimer_Tick(object? sender, EventArgs e)
         {
-            _elapsedMs += 33;
+            _elapsedMs = (int)_duration.ElapsedMilliseconds;
 
             // 1. T = 450ms: Spawn local burst tại last winning move
             if (_elapsedMs >= 450 && !_burstSpawned)
@@ -219,6 +228,9 @@ namespace CaroClient
             {
                 double angle = (Math.PI * 2 * i / count) + (rng.NextDouble() * 0.3 - 0.15);
                 float speed = (float)(rng.NextDouble() * 3.5 + 2.0);
+                float w = rng.Next(6, 9);
+                float h = rng.Next(6, 9);
+                int life = rng.Next(28, 42);
 
                 _particles.Add(new CelebrationParticle
                 {
@@ -227,10 +239,12 @@ namespace CaroClient
                     Vx = (float)(Math.Cos(angle) * speed),
                     Vy = (float)(Math.Sin(angle) * speed) - 1.0f,
                     Gravity = 0.12f,
-                    Alpha = 240,
-                    FadeRate = rng.Next(5, 8),
-                    Width = rng.Next(5, 8),
-                    Height = rng.Next(5, 8),
+                    Width = w,
+                    Height = h,
+                    CurrentWidth = w,
+                    CurrentHeight = h,
+                    TotalLife = life,
+                    LifeRemaining = life,
                     Shape = (ParticleShape)rng.Next(0, 3),
                     ParticleColor = burstColors[rng.Next(burstColors.Length)]
                 });
@@ -259,6 +273,10 @@ namespace CaroClient
 
             for (int i = 0; i < count; i++)
             {
+                float w = rng.Next(7, 12);
+                float h = rng.Next(5, 8);
+                int life = rng.Next(45, 65);
+
                 _particles.Add(new CelebrationParticle
                 {
                     X = rng.Next(minX, Math.Max(minX + 1, maxX)),
@@ -268,10 +286,12 @@ namespace CaroClient
                     Gravity = 0.07f,
                     Rotation = rng.Next(0, 360),
                     RotSpeed = (float)(rng.NextDouble() * 8.0 - 4.0),
-                    Alpha = 230,
-                    FadeRate = rng.Next(2, 5),
-                    Width = rng.Next(6, 11),
-                    Height = rng.Next(4, 7),
+                    Width = w,
+                    Height = h,
+                    CurrentWidth = w,
+                    CurrentHeight = h,
+                    TotalLife = life,
+                    LifeRemaining = life,
                     Shape = (ParticleShape)rng.Next(0, 3),
                     ParticleColor = confettiColors[rng.Next(confettiColors.Length)]
                 });
@@ -294,6 +314,9 @@ namespace CaroClient
             {
                 double angle = (Math.PI * 2 * i / count);
                 float speed = (float)(rng.NextDouble() * 2.5 + 1.8);
+                float size = rng.Next(5, 8);
+                int life = rng.Next(24, 36);
+
                 _particles.Add(new CelebrationParticle
                 {
                     X = cx,
@@ -301,10 +324,12 @@ namespace CaroClient
                     Vx = (float)(Math.Cos(angle) * speed),
                     Vy = (float)(Math.Sin(angle) * speed),
                     Gravity = 0.08f,
-                    Alpha = 220,
-                    FadeRate = rng.Next(6, 9),
-                    Width = rng.Next(4, 7),
-                    Height = rng.Next(4, 7),
+                    Width = size,
+                    Height = size,
+                    CurrentWidth = size,
+                    CurrentHeight = size,
+                    TotalLife = life,
+                    LifeRemaining = life,
                     Shape = ParticleShape.Circle,
                     ParticleColor = fireworkColors[rng.Next(fireworkColors.Length)]
                 });
@@ -320,9 +345,14 @@ namespace CaroClient
                 p.Y += p.Vy;
                 p.Vy += p.Gravity;
                 p.Rotation += p.RotSpeed;
-                p.Alpha -= p.FadeRate;
+                p.LifeRemaining--;
 
-                if (p.Alpha <= 0 || p.Y > this.ClientSize.Height + 50)
+                // Tự động co nhỏ dần khi sắp hết vòng đời
+                float lifeFactor = Math.Clamp((float)p.LifeRemaining / Math.Max(1, p.TotalLife * 0.35f), 0f, 1f);
+                p.CurrentWidth = p.Width * lifeFactor;
+                p.CurrentHeight = p.Height * lifeFactor;
+
+                if (p.LifeRemaining <= 0 || p.CurrentWidth < 0.5f || p.Y > this.ClientSize.Height + 50)
                 {
                     _particles.RemoveAt(i);
                 }
@@ -331,9 +361,9 @@ namespace CaroClient
 
         protected override void OnPaintBackground(PaintEventArgs e)
         {
-            // Xóa nền bằng màu TransparencyKey
+            // Xóa nền toàn bộ bằng màu TransparencyKey
             using var brush = new SolidBrush(this.TransparencyKey);
-            e.Graphics.FillRectangle(brush, e.ClipRectangle);
+            e.Graphics.FillRectangle(brush, this.ClientRectangle);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -361,9 +391,8 @@ namespace CaroClient
             if (_elapsedMs < 380 || _elapsedMs > 900) return;
 
             float progress = (_elapsedMs - 380) / 520f; // 0.0 -> 1.0
-            float radius = 10f + progress * 75f; // 10px -> 85px
-            int alpha = (int)(210 * (1f - progress));
-            if (alpha <= 0) return;
+            float radius = 10f + progress * 80f; // 10px -> 90px
+            float penWidth = Math.Max(1.0f, 3.2f * (1f - progress * 0.7f));
 
             var waveRect = new RectangleF(
                 _lastMoveScreenPoint.X - radius,
@@ -371,18 +400,18 @@ namespace CaroClient
                 radius * 2,
                 radius * 2);
 
-            using var pen = new Pen(Color.FromArgb(alpha, CaroTheme.VictoryGoldLight), 2.5f);
+            using var pen = new Pen(CaroTheme.VictoryGoldLight, penWidth);
             g.DrawEllipse(pen, waveRect);
 
             // Subtle inner ring
-            if (radius > 20)
+            if (radius > 25 && progress < 0.75f)
             {
                 var innerRect = new RectangleF(
                     _lastMoveScreenPoint.X - radius * 0.65f,
                     _lastMoveScreenPoint.Y - radius * 0.65f,
                     radius * 1.3f,
                     radius * 1.3f);
-                using var innerPen = new Pen(Color.FromArgb(alpha / 2, CaroTheme.VictoryGoldHi), 1.2f);
+                using var innerPen = new Pen(CaroTheme.VictoryGoldHi, Math.Max(0.8f, penWidth * 0.6f));
                 g.DrawEllipse(innerPen, innerRect);
             }
         }
@@ -391,21 +420,20 @@ namespace CaroClient
         {
             foreach (var p in _particles)
             {
-                if (p.Alpha <= 0) continue;
-                int a = Math.Clamp(p.Alpha, 0, 255);
-                using var brush = new SolidBrush(Color.FromArgb(a, p.ParticleColor));
+                if (p.CurrentWidth <= 0.5f || p.CurrentHeight <= 0.5f) continue;
+                using var brush = new SolidBrush(p.ParticleColor);
 
                 var state = g.Save();
                 g.TranslateTransform(p.X, p.Y);
                 if (p.Rotation != 0) g.RotateTransform(p.Rotation);
 
-                float hw = p.Width / 2f;
-                float hh = p.Height / 2f;
+                float hw = p.CurrentWidth / 2f;
+                float hh = p.CurrentHeight / 2f;
 
                 switch (p.Shape)
                 {
                     case ParticleShape.Rectangle:
-                        g.FillRectangle(brush, -hw, -hh, p.Width, p.Height);
+                        g.FillRectangle(brush, -hw, -hh, p.CurrentWidth, p.CurrentHeight);
                         break;
 
                     case ParticleShape.Diamond:
@@ -421,7 +449,7 @@ namespace CaroClient
 
                     case ParticleShape.Circle:
                     default:
-                        g.FillEllipse(brush, -hw, -hh, p.Width, p.Height);
+                        g.FillEllipse(brush, -hw, -hh, p.CurrentWidth, p.CurrentHeight);
                         break;
                 }
 
@@ -438,11 +466,10 @@ namespace CaroClient
                 float prog = (_elapsedMs - s.StartMs) / (float)s.DurationMs; // 0.0 -> 1.0
                 // Sine-based pulse: 0 -> 1 -> 0
                 float pulse = (float)Math.Sin(prog * Math.PI);
-                int alpha = (int)(230 * pulse);
-                if (alpha <= 0) continue;
+                if (pulse <= 0.05f) continue;
 
                 float r = s.MaxRadius * pulse;
-                using var starBrush = new SolidBrush(Color.FromArgb(alpha, CaroTheme.VictoryGoldHi));
+                using var starBrush = new SolidBrush(CaroTheme.VictoryGoldHi);
 
                 // Vẽ ngôi sao 4 cánh (Four-pointed star)
                 PointF[] starPts = new PointF[]
@@ -462,31 +489,35 @@ namespace CaroClient
 
         private void DrawVictoryTitle(Graphics g)
         {
-            if (_elapsedMs < 700 || _elapsedMs > 2300) return;
+            if (_elapsedMs < 650 || _elapsedMs > 2350) return;
 
-            // Tính scale & alpha
-            float scale = 1.0f;
-            int alpha = 255;
-
-            if (_elapsedMs < 1200)
+            float scale;
+            if (_elapsedMs < 1050)
             {
-                // Entrance: 700 -> 1200 (500ms)
-                float t = (_elapsedMs - 700) / 500f;
-                // Scale 0.90 -> 1.05 -> 1.00
-                scale = 0.90f + 0.15f * (float)Math.Sin(t * Math.PI * 0.75);
-                alpha = (int)(255 * Math.Clamp(t * 1.5f, 0f, 1f));
+                // Entrance spring bounce: 650 -> 1050 (400ms)
+                float t = (_elapsedMs - 650) / 400f; // 0.0 -> 1.0
+                scale = (float)(Math.Sin(t * Math.PI * 0.5) * 1.05);
+                if (scale > 1.05f) scale = 1.05f;
             }
-            else if (_elapsedMs > 1800)
+            else if (_elapsedMs < 1250)
             {
-                // Exit fade: 1800 -> 2300 (500ms)
-                float t = (_elapsedMs - 1800) / 500f;
-                alpha = (int)(255 * (1f - Math.Clamp(t, 0f, 1f)));
+                // Settle from 1.05 to 1.00 (200ms)
+                float t = (_elapsedMs - 1050) / 200f;
+                scale = 1.05f - (0.05f * t);
+            }
+            else if (_elapsedMs > 2050)
+            {
+                // Exit shrink: 2050 -> 2350 (300ms)
+                float t = (_elapsedMs - 2050) / 300f;
+                scale = Math.Max(0f, 1.0f - t);
+            }
+            else
+            {
                 scale = 1.0f;
             }
 
-            if (alpha <= 0) return;
+            if (scale <= 0.05f) return;
 
-            // Kích thước banner & vị trí giữa bàn cờ (tối đa không vượt quá chiều rộng bàn cờ - 40px)
             int maxBannerW = Math.Max(280, _boardArea.Width - 40);
             int baseBannerW = Math.Min(360, maxBannerW);
             int bannerW = (int)(baseBannerW * scale);
@@ -494,32 +525,37 @@ namespace CaroClient
             int cx = _boardArea.X + _boardArea.Width / 2;
             int cy = _boardArea.Y + _boardArea.Height / 2;
             var bannerRect = new Rectangle(cx - bannerW / 2, cy - bannerH / 2, bannerW, bannerH);
+            if (bannerRect.Width < 20 || bannerRect.Height < 20) return;
 
-            // 1. Thân Card Soft 3D cho Title (nền gỗ ấm, viền vàng kim)
-            using (var path = CaroTheme.GetRoundedPath(bannerRect, 18))
+            int cornerRadius = Math.Max(6, (int)(18 * scale));
+            using (var path = CaroTheme.GetRoundedPath(bannerRect, cornerRadius))
             {
                 // Nền thẻ: Màu gỗ tối sang trọng (#3D2015)
-                using (var bgBrush = new SolidBrush(Color.FromArgb(alpha, 61, 32, 21)))
+                using (var bgBrush = new SolidBrush(Color.FromArgb(255, 61, 32, 21)))
                 {
                     g.FillPath(bgBrush, path);
                 }
 
                 // Viền vàng kim đôi (Double Gold Border)
-                using (var goldPen = new Pen(Color.FromArgb(alpha, CaroTheme.VictoryGold), 2.2f))
+                using (var goldPen = new Pen(CaroTheme.VictoryGold, Math.Max(1.5f, 2.4f * scale)))
                 {
                     g.DrawPath(goldPen, path);
                 }
 
-                var innerRect = new Rectangle(bannerRect.X + 3, bannerRect.Y + 3, bannerRect.Width - 6, bannerRect.Height - 6);
-                using (var innerPath = CaroTheme.GetRoundedPath(innerRect, 15))
-                using (var innerPen = new Pen(Color.FromArgb(alpha / 2, CaroTheme.VictoryGoldLight), 1.0f))
+                if (bannerRect.Width > 20 && bannerRect.Height > 20)
                 {
-                    g.DrawPath(innerPen, innerPath);
+                    var innerRect = new Rectangle(bannerRect.X + 3, bannerRect.Y + 3, bannerRect.Width - 6, bannerRect.Height - 6);
+                    int innerRadius = Math.Max(4, cornerRadius - 3);
+                    using (var innerPath = CaroTheme.GetRoundedPath(innerRect, innerRadius))
+                    using (var innerPen = new Pen(CaroTheme.VictoryGoldLight, Math.Max(1.0f, 1.2f * scale)))
+                    {
+                        g.DrawPath(innerPen, innerPath);
+                    }
                 }
             }
 
-            // 2. Chữ "CHIẾN THẮNG!"
-            float titleFontSize = Math.Max(16f, 22f * scale);
+            // Chữ "CHIẾN THẮNG!"
+            float titleFontSize = Math.Max(10f, 22f * scale);
             using var titleFont = new Font("Segoe UI", titleFontSize, FontStyle.Bold);
 
             using var titleSf = new StringFormat
@@ -532,23 +568,23 @@ namespace CaroClient
 
             // Bóng chữ sô-cô-la đậm
             var shadowRect = new Rectangle(bannerRect.X + 10, bannerRect.Y + (int)(12 * scale) + 2, bannerRect.Width - 20, (int)(42 * scale));
-            using (var textShadowBrush = new SolidBrush(Color.FromArgb(alpha, 25, 12, 6)))
+            using (var textShadowBrush = new SolidBrush(Color.FromArgb(255, 25, 12, 6)))
             {
                 g.DrawString("CHIẾN THẮNG!", titleFont, textShadowBrush, shadowRect, titleSf);
             }
 
-            // Mặt chữ vàng ngà lấp lánh (VictoryGoldHi / VictoryIvory)
+            // Mặt chữ vàng ngà lấp lánh (VictoryGoldHi)
             var textRect = new Rectangle(bannerRect.X + 10, bannerRect.Y + (int)(12 * scale), bannerRect.Width - 20, (int)(42 * scale));
-            using (var textBrush = new SolidBrush(Color.FromArgb(alpha, CaroTheme.VictoryGoldHi)))
+            using (var textBrush = new SolidBrush(CaroTheme.VictoryGoldHi))
             {
                 g.DrawString("CHIẾN THẮNG!", titleFont, textBrush, textRect, titleSf);
             }
 
-            // 3. Subtitle "Chúc mừng <PlayerName>!"
-            float subFontSize = Math.Max(10f, 12f * scale);
+            // Subtitle "Chúc mừng <PlayerName>!"
+            float subFontSize = Math.Max(8f, 12f * scale);
             using var subFont = new Font("Segoe UI", subFontSize, FontStyle.Bold);
             var subRect = new Rectangle(bannerRect.X + 14, bannerRect.Y + (int)(58 * scale), bannerRect.Width - 28, (int)(34 * scale));
-            using (var subBrush = new SolidBrush(Color.FromArgb(alpha, CaroTheme.VictoryIvory)))
+            using (var subBrush = new SolidBrush(CaroTheme.VictoryIvory))
             {
                 using var subSf = new StringFormat
                 {
@@ -616,10 +652,12 @@ namespace CaroClient
         public float Gravity { get; set; }
         public float Rotation { get; set; }
         public float RotSpeed { get; set; }
-        public int Alpha { get; set; }
-        public int FadeRate { get; set; }
-        public int Width { get; set; }
-        public int Height { get; set; }
+        public float Width { get; set; }
+        public float Height { get; set; }
+        public float CurrentWidth { get; set; }
+        public float CurrentHeight { get; set; }
+        public int TotalLife { get; set; }
+        public int LifeRemaining { get; set; }
         public ParticleShape Shape { get; set; }
         public Color ParticleColor { get; set; }
     }

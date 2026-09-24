@@ -56,6 +56,7 @@ namespace CaroClient
         public static readonly Color TimerPillBg = Color.FromArgb(185, 140, 104);    // #B98C68
         public static readonly Color TimerPillText = Color.FromArgb(51, 32, 24);     // #332018
         public static readonly Color TimerAlertText = Color.FromArgb(192, 57, 43);
+        public static readonly Color ProgressCritical = Color.FromArgb(147, 76, 61); // muted terracotta
 
         // ── Win Celebration ──────────────────────────────────────────────────
         public static readonly Color WinGoldGlow = Color.FromArgb(218, 165, 32);       // Warm gold

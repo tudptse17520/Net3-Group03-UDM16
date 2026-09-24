@@ -339,7 +339,7 @@ namespace CaroClient
             MaximizeBox = false;
             Name = "MatchHistoryForm";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "Lịch Sử Trận Đấu - Game Caro";
+            Text = "Lịch Sử Trận Đấu - C A R O";
 
             cardTotal.ResumeLayout(false);
             cardWin.ResumeLayout(false);

@@ -8,7 +8,7 @@ using System.Windows.Forms;
 
 namespace CaroClient
 {
-    public partial class GameBoardForm : Form
+    public partial class GameBoardForm : CaroForm
     {
         // ── Hằng số bàn cờ ────────────────────────────────────────────────
         private const int BoardSize = 15;
@@ -25,7 +25,6 @@ namespace CaroClient
         private bool _isSpectator = false;
 
         // ── Quản lý đồng hồ đếm ngược lượt (DUY NHẤT 1 Timer logic) ───────
-        private System.Windows.Forms.Timer? _countdownTimer;
         private int _remainingSeconds = 0;
 
         // ── Trạng thái kết thúc trận & đóng form an toàn ─────────────────
@@ -48,6 +47,10 @@ namespace CaroClient
         private int _celebrationElapsedMs = 0;
         private WinCelebrationOverlay? _celebrationOverlay;
         private bool _isLocalWinner = false;
+        private bool _serverMatchFinalized = false;
+        private string? _serverFinalizeError = null;
+        private string? _pendingResultTitle = null;
+        private string? _pendingResultText = null;
         private readonly ToolTip _sharedToolTip = new ToolTip();
 
         private static int[][] CreateJaggedBoard()
@@ -73,6 +76,10 @@ namespace CaroClient
             this.DoubleBuffered = true;
 
             InitializeComponent();
+            InitializeProgressUi();
+            InitializeSocialUi();
+            var _ = this.Handle; // Ensure Handle is created immediately so that InvokeRequired works correctly for early network events
+
             SetupCustomPaints();
             InitBoard();
             SetupDrawUI();
@@ -80,7 +87,12 @@ namespace CaroClient
 
             // Đăng ký sự kiện Resize để tính toán lại Responsive Geometry
             this.Resize += GameBoardForm_Resize;
-            
+
+            // Cho phép nhấp chuột để bỏ qua animation ăn mừng và xem kết quả ngay
+            this.MouseDown += (s, e) => SkipCelebrationIfActive();
+            pnlWoodFrame.MouseDown += (s, e) => SkipCelebrationIfActive();
+            pnlBoardContainer.MouseDown += (s, e) => SkipCelebrationIfActive();
+
             SetupAvatarLogic();
 
             CaroClient.Network.NetworkClient.Instance.OnMoveMade += HandleMoveMade;
@@ -102,7 +114,7 @@ namespace CaroClient
         }
 
         // ── Constructor cho Player ────────────────────────────────────────
-        public GameBoardForm(string roomId, int mySymbol, string opponentName, Guid matchId) : this()
+        public GameBoardForm(string roomId, int mySymbol, string opponentName, Guid matchId, GameTimingDto? timing = null) : this()
         {
             _roomId = roomId;
             _mySymbol = mySymbol;
@@ -114,8 +126,8 @@ namespace CaroClient
                 lblPlayer1Name.Text = myName;
                 lblPlayer2Name.Text = opponentName;
 
-                lblPlayer1Id.Text = $"ID: {myName}";
-                lblPlayer2Id.Text = $"ID: {opponentName}";
+                lblPlayer1Id.Text = "PLAYER 1";
+                lblPlayer2Id.Text = "PLAYER 2";
                 Piece1.Text = "Quân cờ: X (Đi trước)";
                 Piece2.Text = "Quân cờ: O";
             }
@@ -124,8 +136,8 @@ namespace CaroClient
                 lblPlayer1Name.Text = opponentName;
                 lblPlayer2Name.Text = myName;
 
-                lblPlayer1Id.Text = $"ID: {opponentName}";
-                lblPlayer2Id.Text = $"ID: {myName}";
+                lblPlayer1Id.Text = "PLAYER 1";
+                lblPlayer2Id.Text = "PLAYER 2";
                 Piece1.Text = "Quân cờ: X (Đi trước)";
                 Piece2.Text = "Quân cờ: O";
             }
@@ -133,13 +145,11 @@ namespace CaroClient
             lblPlayer1MoveCount.Text = "0";
             lblPlayer2MoveCount.Text = "0";
 
-            bool isMyTurn = (mySymbol == 1);
-            UpdateTurnBadges(isMyTurn);
 
             _sharedToolTip.SetToolTip(lblPlayer1Name, lblPlayer1Name.Text);
             _sharedToolTip.SetToolTip(lblPlayer2Name, lblPlayer2Name.Text);
 
-            StartTurnTimer(CaroShared.Constants.GameConstants.TurnTimeoutSeconds);
+            BeginPresentation(timing);
             LoadInitialAvatars();
         }
 
@@ -147,6 +157,7 @@ namespace CaroClient
         public GameBoardForm(SpectatorStateSnapshotDto snapshot) : this()
         {
             _isSpectator = true;
+            _roomId = snapshot.Room?.RoomId ?? string.Empty;
             if (snapshot.Session != null)
             {
                 _currentMatchId = snapshot.Session.MatchIdentity;
@@ -155,8 +166,8 @@ namespace CaroClient
             // 1. Load tên người chơi
             lblPlayer1Name.Text = snapshot.Room?.PlayerX?.PlayerName ?? "Player X";
             lblPlayer2Name.Text = snapshot.Room?.PlayerO?.PlayerName ?? "Player O";
-            lblPlayer1Id.Text = $"ID: {lblPlayer1Name.Text}";
-            lblPlayer2Id.Text = $"ID: {lblPlayer2Name.Text}";
+            lblPlayer1Id.Text = "PLAYER 1";
+            lblPlayer2Id.Text = "PLAYER 2";
 
             // 2. Load trạng thái bàn cờ hiện tại
             if (snapshot.Session?.Board != null)
@@ -164,13 +175,20 @@ namespace CaroClient
 
             // 3. Cập nhật UI cho chế độ Spectator
             ApplySpectatorUI();
+            ApplyRoomPresence(snapshot.Room);
+            RestoreLastMove(snapshot.Session);
             _sharedToolTip.SetToolTip(lblPlayer1Name, lblPlayer1Name.Text);
             _sharedToolTip.SetToolTip(lblPlayer2Name, lblPlayer2Name.Text);
 
             // 4. Bắt đầu timer từ thông tin thời gian snapshot của Server
-            if (snapshot.Session != null && snapshot.Session.RemainingTimeSeconds > 0)
+            if (snapshot.Session != null)
             {
-                StartTurnTimer(snapshot.Session.RemainingTimeSeconds);
+                BeginPresentation(snapshot.Session.Timing, snapshot.Session.CurrentTurn);
+                if (snapshot.Session.Status == "Finished")
+                {
+                    _isGameOver = true;
+                    FreezePresentation(snapshot.Session.Timing);
+                }
             }
             LoadInitialAvatars();
         }
@@ -189,16 +207,21 @@ namespace CaroClient
             picPlayer2Piece.Paint += (s, e) => DrawMiniPiece(e.Graphics, picPlayer2Piece.ClientRectangle, 2);
 
             // Recessed Stats Boxes
+            foreach (var stats in new[] { pnlPlayer1Stats, pnlPlayer2Stats })
+            {
+                stats.BackColor = CaroTheme.Card;
+                foreach (Control child in stats.Controls) child.BackColor = CaroTheme.CardInnerBox;
+            }
             pnlPlayer1Stats.Paint += (s, e) => DrawRecessedBox(e.Graphics, pnlPlayer1Stats.ClientRectangle);
             pnlPlayer2Stats.Paint += (s, e) => DrawRecessedBox(e.Graphics, pnlPlayer2Stats.ClientRectangle);
 
             // Timer Pills
-            lblPlayer1TimerPill.Paint += (s, e) => DrawTimerPill(e.Graphics, lblPlayer1TimerPill.ClientRectangle, lblPlayer1TimerPill.Text, lblPlayer1TimerPill.ForeColor);
-            lblPlayer2TimerPill.Paint += (s, e) => DrawTimerPill(e.Graphics, lblPlayer2TimerPill.ClientRectangle, lblPlayer2TimerPill.Text, lblPlayer2TimerPill.ForeColor);
+            lblPlayer1TimerPill.Renderer = e => DrawTimerPill(e.Graphics, lblPlayer1TimerPill.ClientRectangle, lblPlayer1TimerPill.Text, lblPlayer1TimerPill.ForeColor);
+            lblPlayer2TimerPill.Renderer = e => DrawTimerPill(e.Graphics, lblPlayer2TimerPill.ClientRectangle, lblPlayer2TimerPill.Text, lblPlayer2TimerPill.ForeColor);
 
             // Turn Badges
-            pnlPlayer1Turn.Paint += (s, e) => DrawTurnBadge(e.Graphics, pnlPlayer1Turn.ClientRectangle, pnlPlayer1Turn.Text, pnlPlayer1Turn.Text.Contains("LƯỢT CỦA BẠN"));
-            pnlPlayer2Turn.Paint += (s, e) => DrawTurnBadge(e.Graphics, pnlPlayer2Turn.ClientRectangle, pnlPlayer2Turn.Text, pnlPlayer2Turn.Text.Contains("LƯỢT CỦA BẠN"));
+            pnlPlayer1Turn.Renderer = e => DrawTurnBadge(e.Graphics, pnlPlayer1Turn.ClientRectangle, pnlPlayer1Turn.Text, pnlPlayer1.TurnEmphasis);
+            pnlPlayer2Turn.Renderer = e => DrawTurnBadge(e.Graphics, pnlPlayer2Turn.ClientRectangle, pnlPlayer2Turn.Text, pnlPlayer2.TurnEmphasis);
         }
 
         private void PicAvatarPlayer1_Paint(object? sender, PaintEventArgs e)
@@ -315,15 +338,17 @@ namespace CaroClient
             );
         }
 
-        private void DrawTurnBadge(Graphics g, Rectangle rect, string text, bool isActive)
+        private void DrawTurnBadge(Graphics g, Rectangle rect, string text, double emphasis)
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var pillRect = new Rectangle(2, 2, rect.Width - 4, rect.Height - 4);
             int radius = pillRect.Height / 2;
             using var path = CaroTheme.GetRoundedPath(pillRect, radius);
 
-            Color bg = isActive ? CaroTheme.BadgeActiveBg : CaroTheme.BadgeInactiveBg;
-            Color fg = isActive ? CaroTheme.BadgeActiveText : CaroTheme.BadgeInactiveText;
+            Color Blend(Color a, Color b) => Color.FromArgb(
+                (int)(a.R + (b.R - a.R) * emphasis), (int)(a.G + (b.G - a.G) * emphasis), (int)(a.B + (b.B - a.B) * emphasis));
+            Color bg = Blend(CaroTheme.BadgeInactiveBg, CaroTheme.BadgeActiveBg);
+            Color fg = Blend(CaroTheme.BadgeInactiveText, CaroTheme.BadgeActiveText);
 
             using (var bgBrush = new SolidBrush(bg))
             {
@@ -371,19 +396,9 @@ namespace CaroClient
         {
             if (string.IsNullOrEmpty(playerName) || playerName.StartsWith("Player")) return;
 
-            var pInfo = CaroClient.Network.NetworkClient.Instance.PlayerList?.FirstOrDefault(p => string.Equals(p.PlayerName, playerName, StringComparison.OrdinalIgnoreCase));
-            if (pInfo != null && pInfo.HasAvatar)
-            {
-                var img = CaroClient.Settings.AvatarManager.Instance.GetAvatar(pInfo.PlayerName, pInfo.AvatarVersion, pInfo.HasAvatar);
-                if (img != null)
-                {
-                    UpdateAvatarUI(playerIndex, img);
-                }
-            }
-            else if (pInfo == null)
-            {
-                CaroClient.Network.NetworkClient.Instance.SendAvatarRequestAsync(playerName);
-            }
+            // Always request the avatar from the server.
+            // If the server has it, it will reply with AvatarDataEvent, which triggers OnAvatarUpdated.
+            CaroClient.Network.NetworkClient.Instance.SendAvatarRequestAsync(playerName);
         }
 
         private void OnAvatarUpdated(string playerId, Image? avatar)
@@ -457,7 +472,8 @@ namespace CaroClient
 
                 string initial = string.IsNullOrEmpty(name) ? "?" : name.Substring(0, 1).ToUpper();
                 using var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                e.Graphics.DrawString(initial, new Font("Segoe UI", 24, FontStyle.Bold), Brushes.White, rect, sf);
+                using var avatarFont = new Font("Segoe UI", 24, FontStyle.Bold);
+                e.Graphics.DrawString(initial, avatarFont, Brushes.White, rect, sf);
             }
 
             using var borderPen = new Pen(CaroTheme.CardInnerBox, 2f);
@@ -466,29 +482,8 @@ namespace CaroClient
 
         private void UpdateTurnBadges(bool isMyTurn)
         {
-            if (_isSpectator)
-            {
-                pnlPlayer1Turn.Text = "Đang xem...";
-                pnlPlayer2Turn.Text = "Đang xem...";
-                pnlPlayer1Turn.Invalidate();
-                pnlPlayer2Turn.Invalidate();
-                return;
-            }
-
-            if (_mySymbol == 1)
-            {
-                pnlPlayer1Turn.Text = isMyTurn ? "● LƯỢT CỦA BẠN" : "⏳ ĐANG CHỜ ĐỐI THỦ";
-                pnlPlayer2Turn.Text = isMyTurn ? "⏳ ĐANG CHỜ ĐỐI THỦ" : "● LƯỢT CỦA BẠN";
-            }
-            else
-            {
-                pnlPlayer1Turn.Text = isMyTurn ? "⏳ ĐANG CHỜ ĐỐI THỦ" : "● LƯỢT CỦA BẠN";
-                pnlPlayer2Turn.Text = isMyTurn ? "● LƯỢT CỦA BẠN" : "⏳ ĐANG CHỜ ĐỐI THỦ";
-            }
-
-            pnlPlayer1Turn.Invalidate();
-            pnlPlayer2Turn.Invalidate();
-            UpdateTimerUI();
+            bool changed = _presentation.SetTurn(isMyTurn ? _mySymbol : 3 - _mySymbol, _presentation.Remaining);
+            UpdateTurnPresentation(changed);
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -496,8 +491,8 @@ namespace CaroClient
         // ══════════════════════════════════════════════════════════════════
         private void ApplySpectatorUI()
         {
-            this.Text = "CARO ONLINE — Chế độ Khán giả 👁️";
-            lblAppTitle.Text = "CARO ONLINE — CHẾ ĐỘ KHÁN GIẢ 👁️";
+            this.Text = "C A R O — Chế độ Khán giả 👁️";
+            lblAppTitle.Text = "C A R O — CHẾ ĐỘ KHÁN GIẢ 👁️";
 
             btnSurrender.Text = "THOÁT PHÒNG";
             btnSurrender.GlyphIcon = "🚪";
@@ -507,8 +502,10 @@ namespace CaroClient
 
             btnOfferDraw.Enabled = false;
             btnNewGame.Enabled = false;
+            btnSurrender.Visible = btnOfferDraw.Visible = btnNewGame.Visible = false;
+            _roomChat.Visible = _spectatorLock.Visible = false;
+            CenterLayout();
 
-            UpdateTurnBadges(false);
 
             for (int row = 0; row < BoardSize; row++)
             {
@@ -531,8 +528,10 @@ namespace CaroClient
             {
                 for (int col = 0; col < BoardSize; col++)
                 {
-                    var btn = new Button
+                    var btn = new BufferedCellButton
                     {
+                        Name      = $"Cell_{row}_{col}",
+                        AccessibleName = $"Ô {col + 1}, {row + 1}",
                         Width     = _currentCellSize,
                         Height    = _currentCellSize,
                         Left      = col * _currentCellSize,
@@ -629,6 +628,11 @@ namespace CaroClient
             }
 
             // 4. Render Quân cờ X hoặc O với scaleFactor
+            if (row == _lastAcceptedMoveRow && col == _lastAcceptedMoveCol && cellVal != 0)
+            {
+                using var lastMovePen = new Pen(Color.FromArgb(225, CaroTheme.VictoryGold), Math.Max(2f, DeviceDpi / 48f));
+                e.Graphics.DrawRectangle(lastMovePen, 3, 3, Math.Max(1, rect.Width - 7), Math.Max(1, rect.Height - 7));
+            }
             if (cellVal != 0)
             {
                 float pieceW = rect.Width * 0.7f * scaleFactor;
@@ -687,8 +691,8 @@ namespace CaroClient
             int rightOuterMargin = leftOuterMargin;
             int frameThickness = pnlWoodFrame.FrameThickness;
 
-            int headerReservedHeight = (int)Math.Round(56 * dpiScale);
-            int footerReservedHeight = (int)Math.Round(68 * dpiScale);
+            int headerReservedHeight = (int)Math.Round(164 * dpiScale);
+            int footerReservedHeight = (int)Math.Round(128 * dpiScale);
             int topMargin = 8;
             int bottomMargin = 12;
 
@@ -808,7 +812,11 @@ namespace CaroClient
 
             // 9. Căn giữa Title
             lblAppTitle.Width = this.ClientSize.Width;
-            lblAppTitle.Location = new Point(0, 10);
+            lblAppTitle.Height = Math.Max(32, (int)Math.Round(38 * dpiScale));
+            lblAppTitle.Location = new Point(0, Math.Max(2, (int)Math.Round(4 * dpiScale)));
+
+            LayoutProgressUi(dpiScale);
+            LayoutSocialUi(dpiScale);
 
             // 10. Tự động căn giữa các overlay/panel nếu đang hiển thị
             if (_pnlDrawRequest != null && !_pnlDrawRequest.IsDisposed)
@@ -839,20 +847,29 @@ namespace CaroClient
             avatar.Size = new Size(avatarSize, avatarSize);
             avatar.Location = new Point(pad, 16);
 
-            int textLeft = avatar.Right + 10;
-            int textWidth = Math.Max(50, innerWidth - avatarSize - 10);
-            lblName.Location = new Point(textLeft, 18);
-            lblName.Size = new Size(textWidth, 26);
+            int textGap = 12;
+            int textLeft = avatar.Right + textGap;
+            int textWidth = Math.Max(50, panel.Width - pad - textLeft);
 
-            lblId.Location = new Point(textLeft, lblName.Bottom + 2);
-            lblId.Size = new Size(textWidth, 18);
+            int idHeight = Math.Max(18, (int)Math.Ceiling(lblId.Font.GetHeight() + 2));
+            int nameHeight = Math.Max(30, (int)Math.Ceiling(lblName.Font.GetHeight() + 4));
+
+            lblId.Location = new Point(textLeft, 16);
+            lblId.Size = new Size(textWidth, idHeight);
+            lblId.AutoEllipsis = true;
+            lblId.AutoSize = false;
+
+            lblName.Location = new Point(textLeft, lblId.Bottom + 2);
+            lblName.Size = new Size(textWidth, nameHeight);
+            lblName.AutoEllipsis = true;
+            lblName.AutoSize = false;
 
             // Timer Pill
-            timerPill.Location = new Point(pad, Math.Max(avatar.Bottom, lblId.Bottom) + 12);
+            timerPill.Location = new Point(pad, Math.Max(avatar.Bottom, lblName.Bottom) + 12);
             timerPill.Size = new Size(innerWidth, 34);
 
             // Stats Box
-            statsBox.Location = new Point(pad, timerPill.Bottom + 10);
+            statsBox.Location = new Point(pad, timerPill.Bottom + Math.Max(26, (int)(28 * DeviceDpi / 96f)));
             statsBox.Size = new Size(innerWidth, 110);
 
             // Inside Stats Box
@@ -879,16 +896,32 @@ namespace CaroClient
 
         protected override void OnShown(EventArgs e)
         {
+            FitGameToScreen();
             base.OnShown(e);
+            if (_announceOnShown) AnnounceTurn();
             CenterLayout();
-            this.Invalidate(true);
+        }
+
+        protected override void OnDpiChanged(DpiChangedEventArgs e)
+        {
+            base.OnDpiChanged(e);
+            FitGameToScreen();
+            CenterLayout();
+        }
+
+        private void FitGameToScreen()
+        {
+            var work = Screen.FromControl(this).WorkingArea;
+            float scale = DeviceDpi / 96f;
+            MinimumSize = new Size(Math.Min((int)(1220 * scale), work.Width), Math.Min((int)(810 * scale), work.Height));
+            if (WindowState == FormWindowState.Normal)
+                Size = new Size(Math.Min(Width, work.Width), Math.Min(Height, work.Height));
         }
 
         // ── Sự kiện Resize ────────────────────────────────────────────────
         private void GameBoardForm_Resize(object? sender, EventArgs e)
         {
             CenterLayout();
-            this.Invalidate(true);
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -900,7 +933,11 @@ namespace CaroClient
             var (row, col) = ((int, int))btn.Tag!;
 
             // Board lock: Không cho đánh khi game đã kết thúc
-            if (_isGameOver) return;
+            if (_isGameOver)
+            {
+                SkipCelebrationIfActive();
+                return;
+            }
 
             // Khán giả không được đánh
             if (_isSpectator) return;
@@ -925,6 +962,7 @@ namespace CaroClient
             {
                 for (int col = 0; col < BoardSize; col++)
                 {
+                    if (_board[row][col] == board[row][col]) continue;
                     _board[row][col] = board[row][col];
                     _cells[row, col]?.Invalidate();
                 }
@@ -936,6 +974,10 @@ namespace CaroClient
         {
             StopTurnTimer();
             StopCelebrationOverlay();
+            _serverMatchFinalized = false;
+            _serverFinalizeError = null;
+            _pendingResultTitle = null;
+            _pendingResultText = null;
             _board = CreateJaggedBoard();
             lblPlayer1MoveCount.Text = "0";
             lblPlayer2MoveCount.Text = "0";
@@ -958,42 +1000,13 @@ namespace CaroClient
         // ══════════════════════════════════════════════════════════════════
         public void StartTurnTimer(int seconds = GameConstants.TurnTimeoutSeconds)
         {
-            StopTurnTimer();
-
-            _remainingSeconds = seconds > 0 ? seconds : GameConstants.TurnTimeoutSeconds;
+            _presentation.SetTurn(_presentation.CurrentTurn == 0 ? 1 : _presentation.CurrentTurn, seconds);
+            _turnUiRunning = true;
+            _remainingSeconds = (int)Math.Ceiling(_presentation.Remaining);
             UpdateTimerUI();
-
-            _countdownTimer = new System.Windows.Forms.Timer
-            {
-                Interval = 1000 // 1 giây
-            };
-            _countdownTimer.Tick += CountdownTimer_Tick;
-            _countdownTimer.Start();
         }
 
-        public void StopTurnTimer()
-        {
-            if (_countdownTimer != null)
-            {
-                _countdownTimer.Stop();
-                _countdownTimer.Tick -= CountdownTimer_Tick;
-                _countdownTimer.Dispose();
-                _countdownTimer = null;
-            }
-        }
-
-        private void CountdownTimer_Tick(object? sender, EventArgs e)
-        {
-            if (_remainingSeconds > 0)
-            {
-                _remainingSeconds--;
-                UpdateTimerUI();
-            }
-            else
-            {
-                StopTurnTimer();
-            }
-        }
+        public void StopTurnTimer() => _turnUiRunning = false;
 
         private void UpdateTimerUI()
         {
@@ -1011,7 +1024,7 @@ namespace CaroClient
             Color textColor = (_remainingSeconds <= 5) ? CaroTheme.TimerAlertText : CaroTheme.TimerPillText;
 
             // Cập nhật nhãn đếm ngược trên Card của người đang đến lượt
-            bool isP1Active = pnlPlayer1Turn.Text.Contains("LƯỢT CỦA BẠN");
+            bool isP1Active = _presentation.CurrentTurn == 1;
             if (isP1Active)
             {
                 lblPlayer1TimerPill.Text = timeStr;
@@ -1060,6 +1073,7 @@ namespace CaroClient
                 _isGameOver = true;
             }
 
+            DisposeProgressUi();
             // Dispose tất cả celebration resources & result shell
             StopTurnTimer();
             StopCelebrationOverlay();
@@ -1108,7 +1122,7 @@ namespace CaroClient
             }
 
             DialogResult result = DialogResult.Yes;
-            
+
             if (!_isGameOver)
             {
                 result = CaroDialogForm.Show(
@@ -1172,8 +1186,11 @@ namespace CaroClient
         }
 
         // btnNewGame (Ván mới)
-        private void button3_Click(object? sender, EventArgs e)
+        private async void button3_Click(object? sender, EventArgs e)
         {
+            if (_isSpectator || _waitReason == "rematch") return;
+            SetWaiting("ĐANG GỬI YÊU CẦU VÁN MỚI...", "rematch");
+            if (sender is Button button) button.Enabled = false;
             var req = new CaroShared.Contracts.NewGameRequest
             {
                 RoomId   = _roomId,
@@ -1181,7 +1198,8 @@ namespace CaroClient
             };
             var msg = new CaroShared.Protocol.NetworkMessage(
                 CaroShared.Enums.MessageType.NewGameRequest, req);
-            _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
+            try { await CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg); }
+            catch (Exception ex) { PresentationError(ex); }
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -1196,9 +1214,29 @@ namespace CaroClient
             BackdropOverlay.Acquire(this);
 
             int panelW = 380;
-            int panelH = 260;
+            int pad = 24;
+            int innerW = panelW - (pad * 2);
 
-            _resultShellForm = new Form
+            // Đo độ cao tin nhắn với TextRenderer để tự động co giãn theo số dòng, đảm bảo không bao giờ bị cắt chữ
+            using var msgFont = new Font("Segoe UI", 11f, FontStyle.Regular);
+            Size measuredMsg = TextRenderer.MeasureText(resultText, msgFont, new Size(innerW, 0), TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
+            int msgHeight = Math.Max(60, measuredMsg.Height + 12);
+
+            int titleH = 38;
+            int msgY = 18 + titleH + 4; // Y = 60
+            int loadingY = msgY + msgHeight + 4;
+            int loadingH = 26;
+
+            int btnHeight = 38;
+            int btnW = 135;
+            int btnGap = 16;
+            int totalBtnW = btnW * 2 + btnGap;
+            int btnLeft = (panelW - totalBtnW) / 2;
+            int btnY = Math.Max(180, loadingY + loadingH + 12);
+
+            int panelH = Math.Max(260, btnY + btnHeight + 24);
+
+            _resultShellForm = new CaroForm
             {
                 FormBorderStyle = FormBorderStyle.None,
                 StartPosition = FormStartPosition.Manual,
@@ -1216,7 +1254,7 @@ namespace CaroClient
             {
                 Dock = DockStyle.Fill,
                 CornerRadius = 16,
-                Padding = new Padding(24)
+                Padding = new Padding(pad)
             };
 
             var lblTitle = new Label
@@ -1225,9 +1263,11 @@ namespace CaroClient
                 Font = new Font("Segoe UI", 16f, FontStyle.Bold),
                 ForeColor = CaroTheme.ButtonNormal,
                 AutoSize = false,
-                Size = new Size(panelW - 48, 40),
-                Location = new Point(24, 20),
-                TextAlign = ContentAlignment.MiddleCenter
+                Size = new Size(innerW, titleH),
+                Location = new Point(pad, 18),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent,
+                UseCompatibleTextRendering = false
             };
 
             var lblMessage = new Label
@@ -1237,10 +1277,12 @@ namespace CaroClient
                 Font = new Font("Segoe UI", 11f, FontStyle.Regular),
                 ForeColor = CaroTheme.TextDark,
                 AutoSize = false,
-                AutoEllipsis = true,
-                Size = new Size(panelW - 48, 40),
-                Location = new Point(24, 70),
-                TextAlign = ContentAlignment.MiddleCenter
+                AutoEllipsis = false,
+                Size = new Size(innerW, msgHeight),
+                Location = new Point(pad, msgY),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent,
+                UseCompatibleTextRendering = false
             };
 
             var lblLoading = new Label
@@ -1250,17 +1292,19 @@ namespace CaroClient
                 Font = new Font("Segoe UI", 10f, FontStyle.Italic),
                 ForeColor = CaroTheme.TextMuted,
                 AutoSize = false,
-                Size = new Size(panelW - 48, 30),
-                Location = new Point(24, 130),
-                TextAlign = ContentAlignment.MiddleCenter
+                Size = new Size(innerW, loadingH),
+                Location = new Point(pad, loadingY),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent,
+                UseCompatibleTextRendering = false
             };
 
             var btnVanMoi = new PillButton
             {
                 Name = "btnVanMoi",
                 Text = "VÁN MỚI",
-                Size = new Size(135, 38),
-                Location = new Point(48, 180),
+                Size = new Size(btnW, btnHeight),
+                Location = new Point(btnLeft, btnY),
                 Enabled = false // Disabled until Phase B
             };
             btnVanMoi.Click += button3_Click;
@@ -1269,20 +1313,37 @@ namespace CaroClient
             {
                 Name = "btnVeSanh",
                 Text = "VỀ SẢNH",
-                Size = new Size(135, 38),
-                Location = new Point(198, 180),
+                Size = new Size(btnW, btnHeight),
+                Location = new Point(btnLeft + btnW + btnGap, btnY),
                 Enabled = false, // Disabled until Phase B
                 IsDestructive = true
             };
             btnVeSanh.Click += btnExitMatch_Click; // Rewired: Thoát về sảnh an toàn sau khi kết thúc trận
+            if (_isSpectator)
+            {
+                btnVanMoi.Visible = false;
+                btnVeSanh.Text = "THOÁT PHÒNG";
+                btnVeSanh.Left = (panelW - btnVeSanh.Width) / 2;
+            }
 
             shellPanel.Controls.Add(lblTitle);
             shellPanel.Controls.Add(lblMessage);
             shellPanel.Controls.Add(lblLoading);
+            shellPanel.Controls.Add(new SoftLoadingIndicator
+            {
+                Name = "resultLoading", Location = new Point(pad, loadingY + loadingH), Size = new Size(innerW, 8)
+            });
             shellPanel.Controls.Add(btnVanMoi);
             shellPanel.Controls.Add(btnVeSanh);
-            
+
             _resultShellForm.Controls.Add(shellPanel);
+
+            void UpdateResultLocation()
+            {
+                int px = (this.ClientSize.Width - panelW) / 2;
+                int py = (this.ClientSize.Height - panelH) / 2;
+                _resultShellForm.Location = this.PointToScreen(new Point(px, py));
+            }
 
             // Sync location with parent form
             EventHandler updateLocation = (s, e) => {
@@ -1292,64 +1353,84 @@ namespace CaroClient
                         _resultShellForm.Visible = false;
                     } else {
                         if (!_resultShellForm.Visible) _resultShellForm.Visible = true;
-                        int px = (this.ClientSize.Width - panelW) / 2;
-                        int py = (this.ClientSize.Height - panelH) / 2;
-                        _resultShellForm.Location = this.PointToScreen(new Point(px, py));
+                        UpdateResultLocation();
                     }
                 }
             };
 
-            this.Move += updateLocation;
-            this.Resize += updateLocation;
             _resultShellForm.FormClosed += (s, e) => {
                 this.Move -= updateLocation;
                 this.Resize -= updateLocation;
             };
 
-            // Set initial location and show
-            updateLocation(this, EventArgs.Empty);
+            // Position without making the form visible: Show(owner) must display it first.
+            UpdateResultLocation();
             _resultShellForm.Show(this);
+            this.Move += updateLocation;
+            this.Resize += updateLocation;
+            updateLocation(this, EventArgs.Empty);
+
+            if (_serverMatchFinalized)
+            {
+                FinalizeResultShell(_serverFinalizeError);
+            }
         }
 
         private void FinalizeResultShell(string? errorDetail)
         {
-            if (_resultShellForm == null || _resultShellForm.IsDisposed || _resultShellForm.Controls.Count == 0)
-            {
-                // Fallback nếu shell chưa được tạo (có thể do lỗi thứ tự)
-                return;
-            }
+            _serverMatchFinalized = true;
+            _serverFinalizeError = errorDetail;
 
-            var shellPanel = _resultShellForm.Controls[0];
+            if (_resultShellForm == null || _resultShellForm.IsDisposed) return;
 
-            // Remove loading label
-            var lblLoading = shellPanel.Controls["lblLoading"];
-            if (lblLoading != null)
+            // Dùng BeginInvoke để đảm bảo Form đã khởi tạo Handle xong và hiển thị trên màn hình
+            // Tránh việc cập nhật property Visible/Enabled bị ghi đè hoặc bỏ qua do Form chưa paint.
+            _resultShellForm.BeginInvoke(new Action(() =>
             {
-                if (!string.IsNullOrEmpty(errorDetail))
+                if (_resultShellForm == null || _resultShellForm.IsDisposed || _resultShellForm.Controls.Count == 0)
                 {
-                    lblLoading.Text = "Lỗi xác nhận từ máy chủ.";
-                    lblLoading.ForeColor = Color.IndianRed;
+                    return;
                 }
-                else
+
+                var shellPanel = _resultShellForm.Controls[0];
+                var progress = shellPanel.Controls["resultLoading"];
+                if (progress != null) progress.Visible = false;
+
+                // Tìm thủ công để đảm bảo chắc chắn không bị lỗi indexer
+                Control? lblLoading = null;
+                Control? btnVanMoi = null;
+                Control? btnVeSanh = null;
+
+                foreach (Control c in shellPanel.Controls)
                 {
-                    lblLoading.Visible = false;
+                    if (c.Name == "lblLoading") lblLoading = c;
+                    else if (c.Name == "btnVanMoi") btnVanMoi = c;
+                    else if (c.Name == "btnVeSanh") btnVeSanh = c;
                 }
-            }
 
-            // Enable buttons appropriately
-            var btnVanMoi = shellPanel.Controls["btnVanMoi"];
-            if (btnVanMoi != null)
-            {
-                // Ván mới có thể không hợp lệ nếu đối thủ đã thoát. 
-                // Tuy nhiên ta cứ enable theo luồng GameOverEvent cơ bản.
-                btnVanMoi.Enabled = true;
-            }
+                if (lblLoading != null)
+                {
+                    if (!string.IsNullOrEmpty(errorDetail))
+                    {
+                        lblLoading.Text = "Lỗi xác nhận từ máy chủ.";
+                        lblLoading.ForeColor = Color.IndianRed;
+                    }
+                    else
+                    {
+                        lblLoading.Visible = false;
+                    }
+                }
 
-            var btnVeSanh = shellPanel.Controls["btnVeSanh"];
-            if (btnVeSanh != null)
-            {
-                btnVeSanh.Enabled = true;
-            }
+                if (btnVanMoi != null)
+                {
+                    btnVanMoi.Enabled = !_isSpectator;
+                }
+
+                if (btnVeSanh != null)
+                {
+                    btnVeSanh.Enabled = true;
+                }
+            }));
         }
 
 
@@ -1361,6 +1442,16 @@ namespace CaroClient
                 return;
             }
 
+            if (_isGameOver || (!string.IsNullOrEmpty(dto.RoomId) && dto.RoomId != _roomId)) return;
+            if (dto.MatchIdentity != Guid.Empty && dto.MatchIdentity != _currentMatchId) return;
+            if (!dto.IsValid)
+            {
+                ToastNotification.Show(this, dto.ErrorMessage, ToastType.Warning);
+                return;
+            }
+            if (dto.IsValid && (dto.X < 0 || dto.X >= BoardSize || dto.Y < 0 || dto.Y >= BoardSize || _board[dto.Y][dto.X] != 0)) return;
+            if (_waitReason == "draw") SetWaiting(null);
+
             // Hủy/ẩn các thông báo đề nghị hòa khi có nước đi mới
             if (_pnlDrawRequest != null)
             {
@@ -1371,13 +1462,12 @@ namespace CaroClient
 
             if (dto.IsValid)
             {
-                int symbol = (dto.PlayerId == CaroClient.Network.NetworkClient.Instance.CurrentNickname)
-                    ? _mySymbol
-                    : (3 - _mySymbol);
+                int symbol = _isSpectator ? (dto.PlayerId == lblPlayer1Name.Text ? 1 : 2)
+                    : (dto.PlayerId == CaroClient.Network.NetworkClient.Instance.CurrentNickname ? _mySymbol : 3 - _mySymbol);
 
                 _board[dto.Y][dto.X] = symbol;
                 _cells[dto.Y, dto.X]?.Invalidate();
-                
+
                 // FINAL PIECE MUST ACTUALLY PAINT FIRST BEFORE RESULT SHELL IS SHOWN
                 if (dto.WinnerSymbol != 0)
                 {
@@ -1385,9 +1475,8 @@ namespace CaroClient
                 }
 
                 // Lưu tọa độ nước đi cuối cùng để tính winning line
-                _lastAcceptedMoveRow = dto.Y;
-                _lastAcceptedMoveCol = dto.X;
-                _lastAcceptedMoveSymbol = symbol;
+                SetLastMove(dto.Y, dto.X, symbol);
+                _moveSound.PlayAcceptedMove();
 
                 if (symbol == 1)
                 {
@@ -1401,16 +1490,16 @@ namespace CaroClient
                 }
 
                 // Cập nhật indicator lượt đánh (Chỉ cập nhật nếu chưa GameOver để tránh đè trạng thái CHIẾN THẮNG)
-                if (!_isSpectator && dto.WinnerSymbol == 0)
+                if (dto.WinnerSymbol == 0)
                 {
-                    bool isMyTurn = (dto.PlayerId != CaroClient.Network.NetworkClient.Instance.CurrentNickname);
-                    UpdateTurnBadges(isMyTurn);
+                    if (dto.Timing != null) ApplyTiming(dto.Timing);
+                    else UpdateTurnPresentation(_presentation.SetTurn(3 - symbol, GameConstants.TurnTimeoutSeconds));
                 }
 
                 // Reset timer cho lượt tiếp theo
                 if (dto.WinnerSymbol == 0)
                 {
-                    StartTurnTimer(CaroShared.Constants.GameConstants.TurnTimeoutSeconds);
+                    if (dto.Timing == null) StartTurnTimer(GameConstants.TurnTimeoutSeconds);
                 }
                 else
                 {
@@ -1418,6 +1507,7 @@ namespace CaroClient
                     // BOARD LOCK: ngay khi MoveMadeEvent xác nhận có winner,
                     // khóa input và dừng timer.
                     _isGameOver = true;
+                    FreezePresentation(dto.Timing);
                     StopTurnTimer();
 
                     if (!_gameOverPresentationStarted)
@@ -1489,8 +1579,6 @@ namespace CaroClient
                             resultText = "Đối thủ đã chiến thắng.";
                         }
 
-                        ShowNonBlockingResultShell(resultTitle, resultText);
-
                         if (_isLocalWinner)
                         {
                             Point centerPt;
@@ -1509,9 +1597,31 @@ namespace CaroClient
                             }
 
                             StopCelebrationOverlay();
+                            _pendingResultTitle = resultTitle;
+                            _pendingResultText = resultText;
+
                             string myName = CaroClient.Network.NetworkClient.Instance.CurrentNickname;
                             _celebrationOverlay = new WinCelebrationOverlay(this, myName, centerPt, pnlWoodFrame.Bounds);
+                            _celebrationOverlay.CelebrationCompleted += () =>
+                            {
+                                if (this.IsDisposed) return;
+                                this.BeginInvoke(new Action(() =>
+                                {
+                                    StopCelebrationOverlay();
+                                    if (!string.IsNullOrEmpty(_pendingResultTitle) && !string.IsNullOrEmpty(_pendingResultText))
+                                    {
+                                        ShowNonBlockingResultShell(_pendingResultTitle, _pendingResultText);
+                                        _pendingResultTitle = null;
+                                        _pendingResultText = null;
+                                    }
+                                }));
+                            };
                             _celebrationOverlay.Start();
+                            _resultShellForm?.BringToFront();
+                        }
+                        else
+                        {
+                            ShowNonBlockingResultShell(resultTitle, resultText);
                         }
                     }
                 }
@@ -1526,6 +1636,12 @@ namespace CaroClient
                 return;
             }
 
+            if (msg.Payload is JsonElement payload)
+            {
+                var terminal = payload.Deserialize<MoveMadeEventDto>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (terminal != null && ((!string.IsNullOrEmpty(terminal.RoomId) && terminal.RoomId != _roomId)
+                    || (terminal.MatchIdentity != Guid.Empty && terminal.MatchIdentity != _currentMatchId))) return;
+            }
             // Phase B Idempotency Guard: Ngăn chặn xử lý lặp lại nếu đã nhận GameOver authoritative
             if (_gameOverEventReceived) return;
             _gameOverEventReceived = true;
@@ -1533,6 +1649,7 @@ namespace CaroClient
             // Dừng timer (để tránh xử thua vô nghĩa khi trận đã kết thúc)
             StopTurnTimer();
             _isGameOver = true;
+            FreezePresentation();
 
             if (msg.Payload is System.Text.Json.JsonElement element)
             {
@@ -1541,6 +1658,7 @@ namespace CaroClient
                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (dto != null)
                 {
+                    FreezePresentation(dto.Timing);
                     // Fallback Phase A: Nếu presentation chưa chạy (ví dụ: timeout, surrender, draw...)
                     if (!_gameOverPresentationStarted)
                     {
@@ -1616,11 +1734,6 @@ namespace CaroClient
                             resultText = "Đối thủ đã chiến thắng.";
                         }
 
-                        string detail = !string.IsNullOrEmpty(dto.ErrorMessage) ? $"\n{dto.ErrorMessage}" : "";
-
-                        ShowNonBlockingResultShell(resultTitle, $"{resultText}{detail}");
-
-                        // Celebration (light)
                         if (_isLocalWinner)
                         {
                             Point centerPt = new Point(
@@ -1628,12 +1741,34 @@ namespace CaroClient
                                 pnlWoodFrame.Top + pnlBoardContainer.Top + (pnlBoardContainer.Height / 2)
                             );
                             StopCelebrationOverlay();
+                            _pendingResultTitle = resultTitle;
+                            _pendingResultText = resultText;
+
                             string myName = CaroClient.Network.NetworkClient.Instance.CurrentNickname;
                             _celebrationOverlay = new WinCelebrationOverlay(this, myName, centerPt, pnlWoodFrame.Bounds);
+                            _celebrationOverlay.CelebrationCompleted += () =>
+                            {
+                                if (this.IsDisposed) return;
+                                this.BeginInvoke(new Action(() =>
+                                {
+                                    StopCelebrationOverlay();
+                                    if (!string.IsNullOrEmpty(_pendingResultTitle) && !string.IsNullOrEmpty(_pendingResultText))
+                                    {
+                                        ShowNonBlockingResultShell(_pendingResultTitle, _pendingResultText);
+                                        _pendingResultTitle = null;
+                                        _pendingResultText = null;
+                                    }
+                                }));
+                            };
                             _celebrationOverlay.Start();
+                            _resultShellForm?.BringToFront();
+                        }
+                        else
+                        {
+                            ShowNonBlockingResultShell(resultTitle, resultText);
                         }
                     }
-                    
+
                     // PHASE B: FINALIZE
                     FinalizeResultShell(!dto.IsValid ? dto.ErrorMessage : null);
                 }
@@ -1642,6 +1777,12 @@ namespace CaroClient
 
         private void HandleMessageReceived(CaroShared.Protocol.NetworkMessage msg)
         {
+            if (msg.Type == CaroShared.Enums.MessageType.GameStateUpdate && msg.Payload is JsonElement stateElement)
+            {
+                var state = stateElement.Deserialize<GameStateDto>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (state != null) RestorePresentation(state);
+                return;
+            }
             if (msg.Type == CaroShared.Enums.MessageType.NewGameEvent)
             {
                 if (this.InvokeRequired)
@@ -1650,16 +1791,23 @@ namespace CaroClient
                     return;
                 }
 
+                GameTimingDto? newTiming = null;
+                int startingTurn = 1;
                 if (msg.Payload is JsonElement el)
                 {
                     var newGameEvent = el.Deserialize<NewGameEventDto>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                     if (newGameEvent != null)
                     {
+                        if (newGameEvent.MatchIdentity != Guid.Empty && newGameEvent.MatchIdentity == _currentMatchId) return;
                         _currentMatchId = newGameEvent.MatchIdentity;
+                        newTiming = newGameEvent.Timing;
+                        startingTurn = newGameEvent.StartingTurn;
                     }
                 }
 
                 // Reset toàn bộ game state VÀ presentation state
+                _newGameOffer = null;
+                CloseNewGameDialog();
                 _isGameOver = false;
                 _gameOverPresentationStarted = false;
                 _gameOverEventReceived = false;
@@ -1677,13 +1825,17 @@ namespace CaroClient
                 _lastAcceptedMoveCol = -1;
                 _lastAcceptedMoveSymbol = 0;
                 _isLocalWinner = false;
+                _serverMatchFinalized = false;
+                _serverFinalizeError = null;
+                _pendingResultTitle = null;
+                _pendingResultText = null;
                 StopCelebrationOverlay();
                 BackdropOverlay.ClearFor(this);
                 if (_pnlDrawRequest != null) _pnlDrawRequest.Visible = false;
                 btnOfferDraw.Text = "HÒA";
                 btnOfferDraw.Enabled = true;
                 ResetBoard();
-                CaroDialogForm.Show(this, "Ván mới đã bắt đầu!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                BeginPresentation(newTiming, startingTurn);
             }
         }
 
@@ -1811,6 +1963,20 @@ namespace CaroClient
             }
             _celebrationElapsedMs = 0;
         }
+
+        private void SkipCelebrationIfActive()
+        {
+            if (_isGameOver && _celebrationOverlay != null && _celebrationOverlay.ElapsedMilliseconds >= 3000)
+            {
+                StopCelebrationOverlay();
+                if (!string.IsNullOrEmpty(_pendingResultTitle) && !string.IsNullOrEmpty(_pendingResultText))
+                {
+                    ShowNonBlockingResultShell(_pendingResultTitle, _pendingResultText);
+                    _pendingResultTitle = null;
+                    _pendingResultText = null;
+                }
+            }
+        }
         // ── HÒA (DRAW) SYSTEM ─────────────────────────────────────────────
         private Guid _currentOfferId;
         private Soft3DPanel? _pnlDrawRequest;
@@ -1898,7 +2064,7 @@ namespace CaroClient
             _pnlDrawRequest.BringToFront();
         }
 
-        private void BtnOfferDraw_Click(object? sender, EventArgs e)
+        private async void BtnOfferDraw_Click(object? sender, EventArgs e)
         {
             if (_isSpectator || _isGameOver) return;
 
@@ -1908,14 +2074,15 @@ namespace CaroClient
                 MatchIdentity = _currentMatchId
             };
             var msg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.DrawOfferRequest, req);
-            _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
-            
             // Tạm disable nút HÒA và hiển thị trạng thái đang chờ
             btnOfferDraw.Text = "ĐANG CHỜ...";
             btnOfferDraw.Enabled = false;
+            SetWaiting("ĐANG CHỜ ĐỐI THỦ PHẢN HỒI...", "draw");
+            try { await CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg); }
+            catch (Exception ex) { PresentationError(ex); }
         }
 
-        private void SendDrawResponse(bool accept)
+        private async void SendDrawResponse(bool accept)
         {
             if (_pnlDrawRequest != null) _pnlDrawRequest.Visible = false;
 
@@ -1927,7 +2094,9 @@ namespace CaroClient
                 Accept = accept
             };
             var msg = new CaroShared.Protocol.NetworkMessage(CaroShared.Enums.MessageType.DrawResponseRequest, req);
-            _ = CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg);
+            SetWaiting("ĐANG CHỜ XÁC NHẬN...", "draw");
+            try { await CaroClient.Network.NetworkClient.Instance.SendMessageAsync(msg); }
+            catch (Exception ex) { PresentationError(ex); }
         }
 
         private void HandleDrawOfferReceived(CaroShared.Contracts.DrawOfferEventDto dto)
@@ -1941,7 +2110,7 @@ namespace CaroClient
             if (_isSpectator || _isGameOver || dto.MatchIdentity != _currentMatchId) return;
 
             _currentOfferId = dto.OfferIdentity;
-            
+
             if (_pnlDrawRequest != null)
             {
                 string offerer = !string.IsNullOrWhiteSpace(dto.OfferedByPlayerName)
@@ -1976,6 +2145,7 @@ namespace CaroClient
             }
 
             if (dto.MatchIdentity != _currentMatchId) return;
+            if (_waitReason == "draw") SetWaiting(null);
 
             if (_pnlDrawRequest != null) _pnlDrawRequest.Visible = false;
 
@@ -1988,11 +2158,15 @@ namespace CaroClient
             {
                 btnOfferDraw.Text = "HÒA";
                 if (!_isGameOver) btnOfferDraw.Enabled = true;
-                CaroDialogForm.Show(this, dto.Message, "Hòa", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                ToastNotification.Show(this, dto.Message, ToastType.Info);
             }
             else
             {
                 btnOfferDraw.Text = "HÒA";
+                _isGameOver = true;
+                FreezePresentation();
+                _gameOverPresentationStarted = true;
+                ShowNonBlockingResultShell("KẾT THÚC VÁN ĐẤU", "HÒA!");
             }
         }
     }

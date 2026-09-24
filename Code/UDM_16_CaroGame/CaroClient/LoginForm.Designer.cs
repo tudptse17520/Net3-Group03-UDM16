@@ -47,8 +47,8 @@ namespace CaroClient
             LblAppTitle.ForeColor = CaroTheme.TextDark;
             LblAppTitle.Location = new Point(0, 18);
             LblAppTitle.Name = "LblAppTitle";
-            LblAppTitle.Size = new Size(480, 38);
-            LblAppTitle.Text = "CARO ONLINE";
+            LblAppTitle.Size = new Size(520, 38);
+            LblAppTitle.Text = "C A R O";
             LblAppTitle.TextAlign = ContentAlignment.MiddleCenter;
 
             LblSubtitle.BackColor = Color.Transparent;
@@ -56,7 +56,7 @@ namespace CaroClient
             LblSubtitle.ForeColor = CaroTheme.TextMuted;
             LblSubtitle.Location = new Point(0, 54);
             LblSubtitle.Name = "LblSubtitle";
-            LblSubtitle.Size = new Size(480, 22);
+            LblSubtitle.Size = new Size(520, 22);
             LblSubtitle.Text = "ĐĂNG NHẬP & KẾT NỐI";
             LblSubtitle.TextAlign = ContentAlignment.MiddleCenter;
 
@@ -66,7 +66,7 @@ namespace CaroClient
             pnlCard.CornerRadius = 18;
             pnlCard.Location = new Point(40, 86);
             pnlCard.Name = "pnlCard";
-            pnlCard.Size = new Size(400, 280);
+            pnlCard.Size = new Size(440, 460);
             pnlCard.TabIndex = 0;
             pnlCard.Controls.Add(LblNickname);
             pnlCard.Controls.Add(pnlNickname);
@@ -84,13 +84,13 @@ namespace CaroClient
             LblNickname.Location = new Point(25, 20);
             LblNickname.Name = "LblNickname";
             LblNickname.Size = new Size(74, 17);
-            LblNickname.Text = "Nickname:";
+            LblNickname.Text = "Tên người chơi";
 
             // pnlNickname (Rounded Input Container)
             pnlNickname.CornerRadius = 10;
             pnlNickname.Location = new Point(25, 42);
             pnlNickname.Name = "pnlNickname";
-            pnlNickname.Size = new Size(350, 36);
+            pnlNickname.Size = new Size(390, 36);
             pnlNickname.TabIndex = 1;
             pnlNickname.Controls.Add(TxtNickname);
 
@@ -101,7 +101,7 @@ namespace CaroClient
             TxtNickname.ForeColor = CaroTheme.TextDark;
             TxtNickname.Location = new Point(10, 8);
             TxtNickname.Name = "TxtNickname";
-            TxtNickname.Size = new Size(330, 19);
+            TxtNickname.Size = new Size(370, 19);
             TxtNickname.TabIndex = 0;
 
             // LblServerIp
@@ -109,16 +109,16 @@ namespace CaroClient
             LblServerIp.BackColor = Color.Transparent;
             LblServerIp.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             LblServerIp.ForeColor = CaroTheme.TextDark;
-            LblServerIp.Location = new Point(25, 90);
+            LblServerIp.Location = new Point(25, 240);
             LblServerIp.Name = "LblServerIp";
             LblServerIp.Size = new Size(67, 17);
-            LblServerIp.Text = "Server IP:";
+            LblServerIp.Text = "Địa chỉ máy chủ";
 
             // pnlServerIp
             pnlServerIp.CornerRadius = 10;
-            pnlServerIp.Location = new Point(25, 112);
+            pnlServerIp.Location = new Point(25, 265);
             pnlServerIp.Name = "pnlServerIp";
-            pnlServerIp.Size = new Size(220, 36);
+            pnlServerIp.Size = new Size(250, 36);
             pnlServerIp.TabIndex = 2;
             pnlServerIp.Controls.Add(TxtServerIp);
 
@@ -129,7 +129,7 @@ namespace CaroClient
             TxtServerIp.ForeColor = CaroTheme.TextDark;
             TxtServerIp.Location = new Point(10, 8);
             TxtServerIp.Name = "TxtServerIp";
-            TxtServerIp.Size = new Size(200, 19);
+            TxtServerIp.Size = new Size(230, 19);
             TxtServerIp.TabIndex = 0;
             TxtServerIp.Text = "127.0.0.1";
 
@@ -138,14 +138,14 @@ namespace CaroClient
             LblPort.BackColor = Color.Transparent;
             LblPort.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             LblPort.ForeColor = CaroTheme.TextDark;
-            LblPort.Location = new Point(260, 90);
+            LblPort.Location = new Point(300, 240);
             LblPort.Name = "LblPort";
             LblPort.Size = new Size(38, 17);
-            LblPort.Text = "Port:";
+            LblPort.Text = "Cổng";
 
             // pnlPort
             pnlPort.CornerRadius = 10;
-            pnlPort.Location = new Point(260, 112);
+            pnlPort.Location = new Point(300, 265);
             pnlPort.Name = "pnlPort";
             pnlPort.Size = new Size(115, 36);
             pnlPort.TabIndex = 3;
@@ -165,22 +165,21 @@ namespace CaroClient
             // BtnConnect (Pill Button)
             BtnConnect.BackColor = CaroTheme.Background;
             BtnConnect.Font = new Font("Segoe UI", 11.5F, FontStyle.Bold);
-            BtnConnect.GlyphIcon = "⚡";
-            BtnConnect.Location = new Point(75, 185);
+            BtnConnect.Location = new Point(95, 326);
             BtnConnect.Name = "BtnConnect";
             BtnConnect.Size = new Size(250, 44);
             BtnConnect.TabIndex = 4;
-            BtnConnect.Text = "KẾT NỐI";
+            BtnConnect.Text = "VÀO GAME";
             BtnConnect.Click += BtnConnect_Click;
 
             // ══════════════════════════════════════════════════════════════════
             //  FORM CONFIGURATION
             // ══════════════════════════════════════════════════════════════════
-            AutoScaleDimensions = new SizeF(7F, 15F);
-            AutoScaleMode = AutoScaleMode.Font;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
             AcceptButton = BtnConnect;
             BackColor = CaroTheme.Background;
-            ClientSize = new Size(480, 400);
+            ClientSize = new Size(520, 570);
             Controls.Add(LblAppTitle);
             Controls.Add(LblSubtitle);
             Controls.Add(pnlCard);
@@ -188,7 +187,8 @@ namespace CaroClient
             MaximizeBox = false;
             Name = "LoginForm";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "Đăng Nhập Game Caro";
+            Text = "Đăng Nhập - C A R O";
+            BuildConnectionModeControls();
             pnlPort.ResumeLayout(false);
             pnlPort.PerformLayout();
             pnlServerIp.ResumeLayout(false);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Sockets;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -25,10 +26,13 @@ namespace CaroClient.Network
         private TcpClient? _tcpClient;
         private NetworkStream? _stream;
         private bool _isConnected;
+        private string _lastServerIp = "";
+        private int _lastServerPort;
+
+        public Task<bool> ReconnectToLastServerAsync() => ReconnectAsync(_lastServerIp, _lastServerPort);
 
         // ── Protocol (từ CaroShared) ──
         private readonly MessageSerializer _serializer = new();
-        private readonly MessageFrameDecoder _decoder = new();
 
         // ── Thread safety ──
         private CancellationTokenSource? _cts;
@@ -36,6 +40,8 @@ namespace CaroClient.Network
 
         // ── Public properties ──
         public bool IsConnected => _isConnected && _tcpClient != null && _tcpClient.Connected;
+        public string ConnectedEndpoint => IsConnected ? $"{_lastServerIp}:{_lastServerPort}" : "";
+        public string LastConnectionError { get; private set; } = "";
         public string CurrentNickname { get; private set; } = string.Empty;
         public string SessionToken { get; private set; } = string.Empty;
         public List<PlayerInfoDto> PlayerList { get; private set; } = new List<PlayerInfoDto>();
@@ -75,28 +81,44 @@ namespace CaroClient.Network
         // ────────────────────────────────────────────
         //  ConnectAsync
         // ────────────────────────────────────────────
-        public async Task<bool> ConnectAsync(string ip, int port)
+        public async Task<bool> ConnectAsync(string ip, int port, CancellationToken cancellationToken = default)
         {
             try
             {
                 Disconnect();
 
+                _lastServerIp = ip;
+                _lastServerPort = port;
+                new ServerConfiguration { Host = ip, Port = port }.Validate();
+                _cts?.Dispose();
+                using var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                connectTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+                ClientLog.Write($"Resolving {ip}:{port}");
+                var addresses = await Dns.GetHostAddressesAsync(ip.Trim('[', ']'), connectTimeout.Token);
+                ClientLog.Write($"Resolved {ip}: {string.Join(", ", addresses.Select(x => x.ToString()))}");
                 _tcpClient = new TcpClient();
-                await _tcpClient.ConnectAsync(ip, port);
+                await _tcpClient.ConnectAsync(addresses, port, connectTimeout.Token);
+                LastConnectionError = "";
+                ClientLog.Write($"TCP connected to {ip}:{port}");
 
                 _stream = _tcpClient.GetStream();
                 _isConnected = true;
 
                 _cts = new CancellationTokenSource();
-                _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
+                var connectionStream = _stream;
+                var connectionToken = _cts.Token;
+                _ = Task.Run(() => ReceiveLoopAsync(connectionStream, connectionToken));
 
                 return true;
             }
             catch (Exception ex)
             {
                 _isConnected = false;
-                OnConnectResult?.Invoke(false,
-                    $"Cannot connect to Server ({ip}:{port}): {ex.Message}");
+                _tcpClient?.Dispose();
+                _tcpClient = null;
+                LastConnectionError = ConnectionDiagnostics.Explain(ex, $"{ip}:{port}");
+                ClientLog.Write($"Connect failed: {ex.GetType().Name}: {ex.Message}");
+                OnConnectResult?.Invoke(false, LastConnectionError);
                 return false;
             }
         }
@@ -106,6 +128,8 @@ namespace CaroClient.Network
         // ────────────────────────────────────────────
         public async Task SendLoginAsync(string nickname)
         {
+            SessionToken = "";
+            PlayerList = new();
             CurrentNickname = nickname;
             var message = new NetworkMessage(MessageType.LoginRequest, nickname);
             await SendMessageAsync(message);
@@ -178,30 +202,38 @@ namespace CaroClient.Network
         // ────────────────────────────────────────────
         //  ReceiveLoopAsync  (dùng MessageFrameDecoder)
         // ────────────────────────────────────────────
-        private async Task ReceiveLoopAsync(CancellationToken token)
+        private async Task ReceiveLoopAsync(NetworkStream stream, CancellationToken token)
         {
             byte[] buffer = new byte[4096];
+            char[] chars = new char[Encoding.UTF8.GetMaxCharCount(4096)];
+            var utf8 = Encoding.UTF8.GetDecoder();
+            var decoder = new MessageFrameDecoder();
             try
             {
-                while (!token.IsCancellationRequested && _stream != null)
+                while (!token.IsCancellationRequested)
                 {
-                    int bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length, token);
+                    int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, token);
 
                     if (bytesRead == 0)
                     {
                         // Server đóng kết nối
-                        _isConnected = false;
-                        OnDisconnected?.Invoke();
+                        if (ReferenceEquals(stream, _stream))
+                        {
+                            _isConnected = false;
+                            OnDisconnected?.Invoke();
+                        }
                         break;
                     }
 
-                    string data = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    IReadOnlyList<string> frames = _decoder.Decode(data);
+                    int charCount = utf8.GetChars(buffer, 0, bytesRead, chars, 0, false);
+                    string data = new(chars, 0, charCount);
+                    IReadOnlyList<string> frames = decoder.Decode(data);
 
                     foreach (string frame in frames)
                     {
                         try
                         {
+                            if (token.IsCancellationRequested || !ReferenceEquals(stream, _stream)) return;
                             DispatchMessage(frame);
                         }
                         catch (Exception ex)
@@ -217,6 +249,9 @@ namespace CaroClient.Network
             }
             catch (Exception ex)
             {
+                if (token.IsCancellationRequested || !ReferenceEquals(stream, _stream)) return;
+                _isConnected = false;
+                OnDisconnected?.Invoke();
                 OnError?.Invoke(ex);
             }
         }
@@ -233,8 +268,9 @@ namespace CaroClient.Network
                 // ── Lobby / Login ──
                 case MessageType.LoginResponse:
                     ParseLoginResponse(msg);
-                    OnConnectResult?.Invoke(true, "Login successful!");
                     ParseAndNotifyPlayerList(msg);
+                    ClientLog.Write($"Login accepted; snapshot={PlayerList.Count}");
+                    OnConnectResult?.Invoke(true, "Đăng nhập thành công.");
                     break;
 
                 case MessageType.ReconnectResponse:
@@ -357,6 +393,13 @@ namespace CaroClient.Network
                     break;
 
                 // ── Catch-all ──
+                case MessageType.ErrorResponse:
+                    if (msg.Payload is JsonElement errorElement)
+                    {
+                        var error = errorElement.Deserialize<ErrorResponse>(JsonOptions);
+                        if (error != null) OnError?.Invoke(new ServerResponseException(error.Code, error.Message));
+                    }
+                    break;
                 default:
                     Console.WriteLine($"[NetworkClient] Unhandled message type: {msg.Type}");
                     OnMessageReceived?.Invoke(msg);
@@ -406,6 +449,7 @@ namespace CaroClient.Network
                 var response = element.Deserialize<PlayerListResponse>(options);
                 if (response != null && response.Players != null)
                 {
+                    ClientLog.Write($"Player snapshot: {response.Players.Count}");
                     PlayerList = response.Players;
                     OnPlayerListReceived?.Invoke(response.Players);
                 }
@@ -450,7 +494,9 @@ namespace CaroClient.Network
         {
             if (!_isConnected && _tcpClient == null) return;
 
+            ClientLog.Write($"Disconnected from {_lastServerIp}:{_lastServerPort}");
             _isConnected = false;
+            PlayerList = new();
             _cts?.Cancel();
 
             try { _stream?.Close(); } catch { }

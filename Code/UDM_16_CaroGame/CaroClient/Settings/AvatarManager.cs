@@ -46,18 +46,21 @@ namespace CaroClient.Settings
 
         public Image? GetAvatar(string playerId, int version, bool hasAvatar)
         {
-            if (!hasAvatar)
-            {
-                return null;
-            }
+            if (string.IsNullOrEmpty(playerId)) return null;
 
+            // Always check cache first. If we have a newer or same version, return it.
             if (_avatarVersions.TryGetValue(playerId, out int cachedVersion))
             {
-                if (cachedVersion == version && _avatarCache.TryGetValue(playerId, out Image? img))
+                if (cachedVersion >= version && _avatarCache.TryGetValue(playerId, out Image? img))
                 {
                     // Return a clone to avoid GDI+ locking issues across UI threads
                     return (Image)img.Clone();
                 }
+            }
+
+            if (!hasAvatar)
+            {
+                return null;
             }
 
             // If not cached or version mismatch, request it
@@ -111,7 +114,9 @@ namespace CaroClient.Settings
                 _avatarCache[ade.PlayerId] = safeImg;
                 _avatarVersions[ade.PlayerId] = ade.AvatarVersion;
 
-                OnAvatarUpdated?.Invoke(ade.PlayerId, (Image)safeImg.Clone());
+                // Subscribers may use this only during the callback, or retain their own clone.
+                using var notificationImage = (Image)safeImg.Clone();
+                OnAvatarUpdated?.Invoke(ade.PlayerId, notificationImage);
             }
             catch (Exception ex)
             {
