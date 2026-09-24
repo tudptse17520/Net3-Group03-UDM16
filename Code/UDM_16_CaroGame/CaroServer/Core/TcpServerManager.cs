@@ -715,7 +715,8 @@ namespace CaroServer.Core
             };
 
             var resultMsg = new NetworkMessage(MessageType.MoveMadeEvent, responseDto);
-            await _broadcaster.BroadcastToRoomAsync(roomId, resultMsg);
+            if (result.IsValid) await _broadcaster.BroadcastToRoomAsync(roomId, resultMsg);
+            else await senderSession.SendMessageAsync(resultMsg);
 
             // Nếu game kết thúc, xử lý GameOver qua luồng tập trung
             if (result.IsGameOver)
