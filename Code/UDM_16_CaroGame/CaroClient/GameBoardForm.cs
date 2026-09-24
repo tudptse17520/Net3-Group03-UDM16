@@ -491,8 +491,8 @@ namespace CaroClient
         // ══════════════════════════════════════════════════════════════════
         private void ApplySpectatorUI()
         {
-            this.Text = "C A R O — Chế độ Khán giả 👁️";
-            lblAppTitle.Text = "C A R O — CHẾ ĐỘ KHÁN GIẢ 👁️";
+            this.Text = "C A R O - KHÁN GIẢ";
+            lblAppTitle.Text = "C A R O - KHÁN GIẢ";
 
             btnSurrender.Text = "THOÁT PHÒNG";
             btnSurrender.GlyphIcon = "🚪";
@@ -545,7 +545,7 @@ namespace CaroClient
                     };
                     btn.FlatAppearance.BorderSize = 0;
                     btn.Click += Cell_Click;
-                    btn.Paint += Cell_Paint;
+                    btn.Renderer = e => Cell_Paint(btn, e);
 
                     pnlBoardContainer.Controls.Add(btn);
                     _cells[row, col] = btn;
@@ -607,7 +607,7 @@ namespace CaroClient
             var boardTheme = CaroClient.Settings.BoardPaletteGenerator.GeneratePreset(settings.BoardAppearance.Theme);
 
             // 2. Mặt gỗ bàn cờ (hoặc gold glow nếu winning cell)
-            using (var bgBrush = new SolidBrush(isWinningCell ? Color.FromArgb(65, CaroTheme.VictoryGoldLight) : boardTheme.SurfaceColor))
+            using (var bgBrush = new SolidBrush(boardTheme.SurfaceColor))
             {
                 e.Graphics.FillRectangle(bgBrush, rect);
             }
@@ -667,11 +667,14 @@ namespace CaroClient
         // ══════════════════════════════════════════════════════════════════
         //  CenterLayout — Responsive Geometry chuẩn theo công thức QA
         // ══════════════════════════════════════════════════════════════════
+        private bool _arrangingBoard;
         private void CenterLayout()
         {
-            if (this.ClientSize.Width <= 0 || this.ClientSize.Height <= 0) return;
+            if (_arrangingBoard || this.ClientSize.Width <= 0 || this.ClientSize.Height <= 0) return;
+            _arrangingBoard = true;
 
             this.SuspendLayout();
+            pnlBoardContainer.SuspendLayout();
             try
             {
                 float dpiScale = this.DeviceDpi > 0 ? (this.DeviceDpi / 96f) : 1f;
@@ -692,7 +695,7 @@ namespace CaroClient
             int frameThickness = pnlWoodFrame.FrameThickness;
 
             int headerReservedHeight = (int)Math.Round(164 * dpiScale);
-            int footerReservedHeight = (int)Math.Round(128 * dpiScale);
+            int footerReservedHeight = (int)Math.Round(158 * dpiScale);
             int topMargin = 8;
             int bottomMargin = 12;
 
@@ -746,10 +749,8 @@ namespace CaroClient
                     var btn = _cells[row, col];
                     if (btn != null)
                     {
-                        btn.Width  = _currentCellSize;
-                        btn.Height = _currentCellSize;
-                        btn.Left   = col * _currentCellSize;
-                        btn.Top    = row * _currentCellSize;
+                        var bounds = new Rectangle(col * cellSize, row * cellSize, cellSize, cellSize);
+                        if (btn.Bounds != bounds) btn.Bounds = bounds;
                     }
                 }
             }
@@ -813,7 +814,7 @@ namespace CaroClient
             // 9. Căn giữa Title
             lblAppTitle.Width = this.ClientSize.Width;
             lblAppTitle.Height = Math.Max(32, (int)Math.Round(38 * dpiScale));
-            lblAppTitle.Location = new Point(0, Math.Max(2, (int)Math.Round(4 * dpiScale)));
+            lblAppTitle.Location = new Point(0, Math.Max(2, (int)Math.Round((_isSpectator ? 14 : 4) * dpiScale)));
 
             LayoutProgressUi(dpiScale);
             LayoutSocialUi(dpiScale);
@@ -829,9 +830,10 @@ namespace CaroClient
             }
             finally
             {
-                this.ResumeLayout(true);
+                pnlBoardContainer.ResumeLayout(false);
+                this.ResumeLayout(false);
+                _arrangingBoard = false;
             }
-            this.Invalidate(true);
         }
 
         private void LayoutCardControls(
@@ -1323,6 +1325,8 @@ namespace CaroClient
             {
                 btnVanMoi.Visible = false;
                 btnVeSanh.Text = "THOÁT PHÒNG";
+                btnVeSanh.Width = Math.Min(innerW, Math.Max(180, TextRenderer.MeasureText(btnVeSanh.Text, btnVeSanh.Font).Width + 42));
+                btnVeSanh.FitTextToWidth = true;
                 btnVeSanh.Left = (panelW - btnVeSanh.Width) / 2;
             }
 
@@ -1446,7 +1450,8 @@ namespace CaroClient
             if (dto.MatchIdentity != Guid.Empty && dto.MatchIdentity != _currentMatchId) return;
             if (!dto.IsValid)
             {
-                ToastNotification.Show(this, dto.ErrorMessage, ToastType.Warning);
+                if (string.IsNullOrEmpty(dto.PlayerId) || dto.PlayerId == CaroClient.Network.NetworkClient.Instance.CurrentNickname)
+                    ShowMoveNotice(dto.ErrorMessage);
                 return;
             }
             if (dto.IsValid && (dto.X < 0 || dto.X >= BoardSize || dto.Y < 0 || dto.Y >= BoardSize || _board[dto.Y][dto.X] != 0)) return;
@@ -1563,9 +1568,7 @@ namespace CaroClient
                         else if (_isSpectator)
                         {
                             resultTitle = "Kết Thúc Ván Đấu";
-                            resultText = dto.WinnerSymbol == 1 ? "X THẮNG!"
-                                       : dto.WinnerSymbol == 2 ? "O THẮNG!"
-                                       : "🤝 HÒA!";
+                            resultText = SpectatorResultText(dto.WinnerSymbol);
                         }
                         else if (_isLocalWinner)
                         {
@@ -1713,9 +1716,7 @@ namespace CaroClient
                         if (_isSpectator)
                         {
                             resultTitle = "Kết Thúc Ván Đấu";
-                            resultText = dto.WinnerSymbol == 1 ? "X THẮNG!"
-                                       : dto.WinnerSymbol == 2 ? "O THẮNG!"
-                                       : "🤝 HÒA!";
+                            resultText = SpectatorResultText(dto.WinnerSymbol);
                         }
                         else if (_isLocalWinner)
                         {
