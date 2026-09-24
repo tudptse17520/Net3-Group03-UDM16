@@ -162,17 +162,10 @@ public sealed class MatchClockControl : Control
         using var border = new Pen(CaroTheme.CardHighlight, 1.5f);
         g.FillPath(bg, path); g.DrawPath(border, path);
 
-        int captionH = _captionFont.Height;
-        int timeH = _timeFont.Height;
-        int remaining = Math.Max(0, Height - (captionH + timeH));
-        int topPad = Math.Max(5, remaining * 3 / 8);
-        int midGap = Math.Max(2, remaining * 2 / 8);
-        int timeY = topPad + captionH + midGap;
-        int timeAreaH = Math.Max(timeH, Height - timeY - Math.Max(4, topPad - 1));
-
         var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
-        TextRenderer.DrawText(g, "THỜI GIAN VÁN", _captionFont, new Rectangle(4, topPad, Width - 8, captionH), CaroTheme.TextMuted, flags);
-        TextRenderer.DrawText(g, _timeText, _timeFont, new Rectangle(4, timeY, Width - 8, timeAreaH), CaroTheme.TextDark, flags);
+        int capH = (int)(Height * 0.35);
+        TextRenderer.DrawText(g, "THỜI GIAN VÁN", _captionFont, new Rectangle(4, 2, Width - 8, capH), CaroTheme.TextMuted, flags);
+        TextRenderer.DrawText(g, _timeText, _timeFont, new Rectangle(4, capH, Width - 8, Height - capH - 2), CaroTheme.TextDark, flags);
     }
     protected override void Dispose(bool disposing)
     {
@@ -189,7 +182,7 @@ public sealed class TurnTransitionBanner : AnimatedStatusControl
     private double _offset;
     private string _detail = "";
     [Browsable(false)] public int AnnouncementCount { get; private set; }
-    public TurnTransitionBanner() { Size = new(380, 58); Visible = false; }
+    public TurnTransitionBanner() { Size = new(380, 40); Visible = false; }
     public void Announce(string name, int symbol, bool local)
     {
         string role = $"PLAYER {symbol}";
@@ -222,15 +215,16 @@ public sealed class TurnTransitionBanner : AnimatedStatusControl
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         var rect = new Rectangle(2, (int)_offset + 2, Width - 5, Height - 5);
         if (rect.Width < 8 || rect.Height < 8) return;
-        using var path = CaroTheme.GetRoundedPath(rect, 12);
+        using var path = CaroTheme.GetRoundedPath(rect, Math.Min(12, rect.Height / 3));
         using var bg = new SolidBrush(CaroTheme.Card);
         using var border = new Pen(CaroTheme.WoodHighlight, 1.3f);
         g.FillPath(bg, path); g.DrawPath(border, path);
+        var textRect = new Rectangle(rect.X + 10, rect.Y, rect.Width - 20, rect.Height);
         var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine;
-        TextRenderer.DrawText(g, Text, _titleFont, new Rectangle(12, rect.Y + 2, Width - 24, Height / 2), CaroTheme.TextDark, flags);
-        TextRenderer.DrawText(g, _detail, _detailFont, new Rectangle(12, rect.Y + Height / 2, Width - 24, Height / 2 - 6), CaroTheme.TextMuted, flags);
+        TextRenderer.DrawText(g, Text, _titleFont, textRect, CaroTheme.TextDark, flags);
     }
     protected override void Dispose(bool disposing)
     {
