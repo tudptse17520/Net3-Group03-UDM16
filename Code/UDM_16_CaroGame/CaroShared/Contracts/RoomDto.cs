@@ -5,6 +5,7 @@ namespace CaroShared.Contracts
     {
         // ID phòng
         public string RoomId { get; init; } = string.Empty;
+        public string OwnerName { get; init; } = string.Empty;
 
         // Thông tin người cầm X
         public PlayerInfoDto? PlayerX { get; init; }
