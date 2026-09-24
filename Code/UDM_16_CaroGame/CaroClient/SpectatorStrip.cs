@@ -4,21 +4,21 @@ using CaroShared.Contracts;
 
 namespace CaroClient;
 
-public sealed class SpectatorStrip : Panel
+public sealed class SpectatorStrip : Soft3DPanel
 {
-    private readonly Label _count = new() { Dock = DockStyle.Left, TextAlign = ContentAlignment.MiddleLeft, ForeColor = CaroTheme.TextMuted, AutoEllipsis = true };
-    private readonly FlowLayoutPanel _people = new() { Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true, FlowDirection = FlowDirection.LeftToRight };
+    private readonly Label _count = new() { Name = "SpectatorCount", TextAlign = ContentAlignment.MiddleLeft, ForeColor = CaroTheme.TextMuted, AutoEllipsis = true, BackColor = CaroTheme.Card };
+    private readonly FlowLayoutPanel _people = new() { WrapContents = false, AutoScroll = true, FlowDirection = FlowDirection.LeftToRight, BackColor = CaroTheme.Card };
     private readonly Dictionary<string, Chip> _chips = new();
     public SpectatorStrip()
     {
-        DoubleBuffered = true; BackColor = CaroTheme.Background;
+        DoubleBuffered = true; BackColor = CaroTheme.Background; CornerRadius = 12;
+        _count.Font = new Font("Segoe UI", 9, FontStyle.Bold);
         Controls.Add(_people); Controls.Add(_count);
         AvatarManager.Instance.OnAvatarUpdated += AvatarUpdated;
     }
     public void SetPeople(IReadOnlyList<PlayerInfoDto> people)
     {
-        _count.Text = $"Khán giả ({people.Count}):";
-        _count.Width = TextRenderer.MeasureText(_count.Text, _count.Font).Width + 12;
+        _count.Text = $"Khán giả ({people.Count})";
         _people.SuspendLayout();
         try
         {
@@ -34,12 +34,21 @@ public sealed class SpectatorStrip : Panel
                 chip.SetImage(AvatarManager.Instance.GetAvatar(person.PlayerName, person.AvatarVersion, person.HasAvatar));
             }
         }
-        finally { _people.ResumeLayout(); }
+        finally { _people.ResumeLayout(); PerformLayout(); }
     }
     protected override void OnLayout(LayoutEventArgs e)
     {
-        if (_count != null) _count.Width = TextRenderer.MeasureText(_count.Text, _count.Font).Width + 12;
         base.OnLayout(e);
+        if (_count == null) return;
+        float scale = DeviceDpi / 96f;
+        int pad = (int)(12 * scale), title = (int)(20 * scale);
+        _count.SetBounds(pad, pad / 2, Width - 2 * pad, title);
+        _people.SetBounds(pad, _count.Bottom, Width - 2 * pad, Math.Max(1, Height - _count.Bottom - pad / 2));
+        foreach (Control chip in _people.Controls)
+        {
+            chip.Size = new Size((int)(140 * scale), (int)(32 * scale));
+            chip.Margin = new Padding(0, 0, (int)(8 * scale), 0);
+        }
     }
     private void AvatarUpdated(string name, Image? image)
     {
@@ -58,12 +67,26 @@ public sealed class SpectatorStrip : Panel
     {
         private Image? _image;
         private readonly ToolTip _tip = new();
+        private bool _hoveringAvatar;
         public Chip(string name)
         {
             Text = name; AccessibleName = name; Name = "Spectator_" + name;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
-            Size = new Size(155, 32); _tip.SetToolTip(this, name);
+            Size = new Size(140, 32); Font = new Font("Segoe UI", 9); BackColor = CaroTheme.Card;
         }
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            _hoveringAvatar = new Rectangle(0, 0, Height, Height).Contains(e.Location);
+            if (!_hoveringAvatar) _tip.Hide(this);
+        }
+        protected override void OnMouseHover(EventArgs e)
+        {
+            base.OnMouseHover(e);
+            if (_hoveringAvatar)
+                _tip.Show(Text, this, new Point(0, -Font.Height - 12), 2500);
+        }
+        protected override void OnMouseLeave(EventArgs e) { _tip.Hide(this); base.OnMouseLeave(e); }
         public void SetImage(Image? image) { var old = _image; _image = image; old?.Dispose(); Invalidate(); }
         protected override void OnPaint(PaintEventArgs e)
         {
