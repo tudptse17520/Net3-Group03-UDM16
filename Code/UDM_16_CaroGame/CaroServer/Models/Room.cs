@@ -11,6 +11,8 @@ namespace CaroServer.Models
         public string RoomId { get; }
         public string PlayerXId { get; }
         public string PlayerOId { get; }
+        // The challenger creates the room and always occupies X; rematches retain ownership.
+        public string OwnerId => PlayerXId;
         public GameSession Session { get; private set; }
         public SemaphoreSlim Actions { get; } = new(1, 1);
         public bool IsSpectatorLocked { get; set; }
