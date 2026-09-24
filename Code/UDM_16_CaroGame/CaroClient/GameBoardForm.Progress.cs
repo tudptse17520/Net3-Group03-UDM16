@@ -151,8 +151,9 @@ public partial class GameBoardForm
 
     private void LayoutProgressUi(float scale)
     {
-        _matchClock.SetBounds((ClientSize.Width - (int)(180 * scale)) / 2, (int)(44 * scale), (int)(180 * scale), (int)(64 * scale));
-        _turnBanner.SetBounds((ClientSize.Width - (int)(380 * scale)) / 2, (int)(110 * scale), (int)(380 * scale), (int)(48 * scale));
+        int headerOffset = _isSpectator ? 12 : 0;
+        _matchClock.SetBounds((ClientSize.Width - (int)(180 * scale)) / 2, (int)((44 + headerOffset) * scale), (int)(180 * scale), (int)(64 * scale));
+        _turnBanner.SetBounds((ClientSize.Width - (int)(380 * scale)) / 2, (int)((110 + headerOffset) * scale), (int)(380 * scale), (int)(40 * scale));
         for (int symbol = 1; symbol <= 2; symbol++)
         {
             var label = symbol == 1 ? lblPlayer1TimerPill : lblPlayer2TimerPill;
