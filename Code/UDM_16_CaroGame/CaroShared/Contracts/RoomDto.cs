@@ -14,5 +14,9 @@ namespace CaroShared.Contracts
 
         // Số người xem
         public int SpectatorCount { get; init; }
+        public bool IsSpectatorLocked { get; init; }
+        public long Revision { get; init; }
+        public List<PlayerInfoDto> Spectators { get; init; } = [];
+        public override string ToString() => RoomCodes.Display(RoomId);
     }
 }

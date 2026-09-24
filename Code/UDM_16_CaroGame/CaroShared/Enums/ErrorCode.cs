@@ -11,6 +11,7 @@ namespace CaroShared.Enums
 
         // Player errors (200-299)
         PlayerNotInRoom = 201,
+        UsernameInUse = 202,
 
         // Game logic errors (300-399)
         GameAlreadyFinished = 300,

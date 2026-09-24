@@ -17,5 +17,8 @@ namespace CaroShared.Contracts
 
         // Định danh ván đấu
         public Guid MatchIdentity { get; init; }
+        public GameTimingDto? Timing { get; init; }
+        public int? LastMoveX { get; init; }
+        public int? LastMoveY { get; init; }
     }
 }

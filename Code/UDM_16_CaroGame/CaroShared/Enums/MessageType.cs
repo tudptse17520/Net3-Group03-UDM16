@@ -56,5 +56,17 @@ namespace CaroShared.Enums
 
         // 9. Xử lý lỗi
         ErrorResponse,
+        // Appended to preserve existing numeric message identifiers.
+        LeaveSpectatorRequest,
+        RoomPresenceRequest,
+        RoomPresenceEvent,
+        SetSpectatorLockRequest,
+        LobbyChatRequest,
+        LobbyChatEvent,
+        RoomChatRequest,
+        RoomChatEvent,
+        NewGameOfferEvent,
+        NewGameResponseRequest,
+        NewGameOfferResolvedEvent,
     }
 }

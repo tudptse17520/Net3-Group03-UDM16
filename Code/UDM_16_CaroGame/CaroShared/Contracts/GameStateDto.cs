@@ -8,5 +8,7 @@ namespace CaroShared.Contracts
 
         // Diễn biến ván cờ
         public GameSessionDto? Session { get; init; }
+        public DateTime? ReconnectDeadlineUtc { get; init; }
+        public int ReconnectWindowSeconds { get; init; }
     }
 }

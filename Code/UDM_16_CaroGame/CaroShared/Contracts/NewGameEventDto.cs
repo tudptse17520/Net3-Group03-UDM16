@@ -14,5 +14,6 @@ namespace CaroShared.Contracts
 
         // Định danh ván đấu mới
         public System.Guid MatchIdentity { get; init; }
+        public GameTimingDto? Timing { get; init; }
     }
 }

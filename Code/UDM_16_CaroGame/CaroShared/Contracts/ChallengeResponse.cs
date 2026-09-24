@@ -14,5 +14,6 @@ namespace CaroShared.Contracts
         public int MySymbol { get; init; } // 1 cho X, 2 cho O
         public string OpponentName { get; init; } = string.Empty;
         public System.Guid MatchIdentity { get; init; }
+        public GameTimingDto? Timing { get; init; }
     }
 }
