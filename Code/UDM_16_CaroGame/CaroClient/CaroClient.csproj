@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Caro</AssemblyName>
     <Product>Caro</Product>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Title>Caro</Title>
     <ApplicationIcon>Assets\Branding\caro.ico</ApplicationIcon>
   </PropertyGroup>
