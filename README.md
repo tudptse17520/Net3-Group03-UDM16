@@ -85,10 +85,10 @@ Bằng chứng kiểm thử lưu tại `Extra/`.
 
 ## Demo
 
-- Video: [Public hoặc Unlisted URL]
+- Video: https://youtu.be/uUGt88FRfZI
 - Slide: `PPTX/`
 - Báo cáo: `DOCX/`
 
 ## Giới hạn
 
-Liệt kê chức năng chưa hỗ trợ và giới hạn hiện tại của sản phẩm.
+Liệt kê chức năng chưa hỗ trợ và giới hạn hiện tại của sản phẩm. (Đã triển khai chi tiết nội dung phần giới hạn trong `DOCX/`)
